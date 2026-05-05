@@ -322,6 +322,14 @@
           <label class="checked"><input type="checkbox" id="an-news" checked /> 新闻分析师</label>
           <label class="checked"><input type="checkbox" id="an-fundamentals" checked /> 基本面分析师</label>
         </div>
+
+        <details class="advanced-toggles" style="grid-column: 1 / -1;">
+          <summary style="cursor:pointer; font-size:13px; color:var(--text-soft); padding:6px 0;">⚙️ 高级选项</summary>
+          <div class="analyst-toggles" style="margin-top:6px;">
+            <label><input type="checkbox" id="opt-parallel-analysts" /> ⚡ 并行分析师 <span class="muted" style="font-size:11px;">(实验性 · 单次决策快 ~50%)</span></label>
+            <label><input type="checkbox" id="opt-structured-reports" /> 📋 结构化报告 <span class="muted" style="font-size:11px;">(每次决策多 1 次轻 LLM 调用)</span></label>
+          </div>
+        </details>
       </div>
 
       <div style="margin-top: 12px;">

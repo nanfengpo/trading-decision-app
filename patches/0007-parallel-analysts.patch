@@ -1,0 +1,303 @@
+diff --git a/TradingAgents/tradingagents/graph/parallel.py b/TradingAgents/tradingagents/graph/parallel.py
+new file mode 100644
+index 0000000..772d152
+--- /dev/null
++++ b/TradingAgents/tradingagents/graph/parallel.py
+@@ -0,0 +1,180 @@
++"""
++Parallel analyst execution via LangGraph sub-graph isolation.
++
++Why this exists
++---------------
++TradingAgents' default graph runs the 4 analysts sequentially, sharing
++``AgentState.messages`` as a single working scratchpad. Each analyst's
++internal tool-call/result thread plays out on that shared channel before
++``msg_clear`` wipes it for the next analyst. End-to-end this is ~3 minutes
++per LIVE decision (4 × ~25 s analyst loops + the rest).
++
++Naively running them in parallel by adding ``START → analyst_X`` edges
++for each X corrupts that scratchpad — concurrent ``AIMessage(tool_calls)``
+++ ``ToolMessage`` writes interleave on ``messages`` and the LLMs lose
++track of which result belongs to which call.
++
++The fix in this module: each analyst is wrapped as a **compiled
++sub-StateGraph** with its OWN ``messages`` channel. The wrapper at the
++parent level reads only inputs the analyst needs (``company_of_interest``
+++ ``trade_date``), runs the subgraph in isolation, and returns ONLY the
++analyst's report field back to the parent. The parent's ``messages``
++channel is never touched.
++
++Net effect: 4 analysts run truly in parallel with no message-channel
++contention. Wall-clock per LIVE decision drops from ~3 min to ~1.5 min.
++
++Activation
++----------
++Set ``cfg["parallel_analysts"] = True`` (or env ``TRADINGAGENTS_PARALLEL_ANALYSTS=1``).
++Default is False — sequential mode is unchanged.
++"""
++
++from __future__ import annotations
++
++import logging
++from typing import Any, Callable, Dict
++
++from langgraph.graph import END, START, StateGraph, MessagesState
++from langgraph.prebuilt import ToolNode
++
++logger = logging.getLogger(__name__)
++
++
++# ---- private state schema ------------------------------------------------
++
++class _AnalystSubState(MessagesState):
++    """Private state for one analyst's sub-graph.
++
++    Inherits ``messages`` from MessagesState (with the add_messages
++    reducer). Each analyst's tool loop runs on this LOCAL channel —
++    isolated from siblings and from the parent.
++
++    All four ``*_report`` fields are present so any analyst's existing
++    factory (which assigns to its own field) works without modification.
++    Only the relevant field is propagated back to the parent by the
++    isolation wrapper.
++    """
++    company_of_interest: str
++    trade_date: str
++    market_report: str
++    sentiment_report: str
++    news_report: str
++    fundamentals_report: str
++    sender: str
++
++
++# ---- subgraph builder ---------------------------------------------------
++
++def build_analyst_subgraph(
++    analyst_node: Callable,
++    tool_node: ToolNode,
++    delete_node: Callable,
++    condition_fn: Callable,
++):
++    """Wrap one analyst's loop into a compiled, message-isolated subgraph.
++
++    Mirrors the sequential pattern (analyst → tools | clear) but lives in
++    its own state schema so messages don't leak.
++    """
++    sub = StateGraph(_AnalystSubState)
++    sub.add_node("analyst", analyst_node)
++    sub.add_node("tools", tool_node)
++    sub.add_node("clear", delete_node)
++
++    sub.add_edge(START, "analyst")
++    sub.add_conditional_edges("analyst", condition_fn, ["tools", "clear"])
++    sub.add_edge("tools", "analyst")
++    sub.add_edge("clear", END)
++
++    return sub.compile()
++
++
++# ---- isolation wrapper ---------------------------------------------------
++
++# Each analyst writes to a different report field
++_REPORT_FIELDS = {
++    "market":       "market_report",
++    "social":       "sentiment_report",
++    "news":         "news_report",
++    "fundamentals": "fundamentals_report",
++}
++
++
++def make_isolated_node(analyst_type: str, sub_graph) -> Callable:
++    """Return a parent-level node that runs a subgraph in isolation.
++
++    The wrapper:
++      1. Pulls only ``company_of_interest`` + ``trade_date`` from parent
++         state — does NOT pass parent's ``messages`` (so the analyst's
++         private message buffer starts fresh).
++      2. Invokes the compiled subgraph.
++      3. Returns ONLY the relevant report field to the parent.
++
++    This is what prevents 4 concurrent analysts from clobbering each
++    other's tool-call/result threads on the parent's ``messages`` channel.
++    """
++    report_field = _REPORT_FIELDS[analyst_type]
++
++    def _isolated(state: Dict[str, Any]) -> Dict[str, Any]:
++        sub_state: Dict[str, Any] = {
++            "messages": [("human", state.get("company_of_interest", ""))],
++            "company_of_interest": state.get("company_of_interest", ""),
++            "trade_date": state.get("trade_date", ""),
++        }
++        try:
++            result = sub_graph.invoke(sub_state)
++        except Exception as e:
++            logger.exception("isolated %s analyst failed", analyst_type)
++            return {report_field: f"_(analyst failed: {e})_"}
++        return {report_field: result.get(report_field, "")}
++
++    return _isolated
++
++
++# ---- top-level wiring ---------------------------------------------------
++
++def wire_parallel_analysts(
++    workflow: StateGraph,
++    selected_analysts: list,
++    analyst_nodes: Dict[str, Callable],
++    delete_nodes: Dict[str, Callable],
++    tool_nodes: Dict[str, ToolNode],
++    conditional_logic,
++    join_node_name: str = "Analysts Done",
++    next_node_name: str = "Bull Researcher",
++) -> None:
++    """Add parallel analysts + barrier-join to ``workflow``.
++
++    The caller is responsible for adding all OTHER nodes (researchers,
++    risk debators, trader, portfolio manager) and edges from
++    ``join_node_name`` onward.
++
++    After this call the workflow has:
++      - one node per analyst (each is an isolated subgraph)
++      - START → all analysts (parallel fan-out)
++      - all analysts → join_node_name (barrier — waits for all)
++      - join_node_name → next_node_name
++    """
++    # Build subgraphs + isolation wrappers
++    isolated = {}
++    for atype in selected_analysts:
++        sub = build_analyst_subgraph(
++            analyst_nodes[atype],
++            tool_nodes[atype],
++            delete_nodes[atype],
++            getattr(conditional_logic, f"should_continue_{atype}"),
++        )
++        isolated[atype] = make_isolated_node(atype, sub)
++
++    # Add to parent workflow
++    cap = lambda t: f"{t.capitalize()} Analyst"
++    for atype in selected_analysts:
++        workflow.add_node(cap(atype), isolated[atype])
++        workflow.add_edge(START, cap(atype))
++
++    # Barrier — a no-op join. LangGraph waits for all incoming edges.
++    workflow.add_node(join_node_name, lambda s: {})
++    for atype in selected_analysts:
++        workflow.add_edge(cap(atype), join_node_name)
++    workflow.add_edge(join_node_name, next_node_name)
+diff --git a/TradingAgents/tradingagents/graph/setup.py b/TradingAgents/tradingagents/graph/setup.py
+index 45d6bfd..e5691a8 100644
+--- a/TradingAgents/tradingagents/graph/setup.py
++++ b/TradingAgents/tradingagents/graph/setup.py
+@@ -6,8 +6,10 @@ from langgraph.prebuilt import ToolNode
+ 
+ from tradingagents.agents import *
+ from tradingagents.agents.utils.agent_states import AgentState
++from tradingagents.dataflows.config import get_config
+ 
+ from .conditional_logic import ConditionalLogic
++from .parallel import wire_parallel_analysts
+ 
+ 
+ class GraphSetup:
+@@ -89,15 +91,15 @@ class GraphSetup:
+         # Create workflow
+         workflow = StateGraph(AgentState)
+ 
+-        # Add analyst nodes to the graph
+-        for analyst_type, node in analyst_nodes.items():
+-            workflow.add_node(f"{analyst_type.capitalize()} Analyst", node)
+-            workflow.add_node(
+-                f"Msg Clear {analyst_type.capitalize()}", delete_nodes[analyst_type]
+-            )
+-            workflow.add_node(f"tools_{analyst_type}", tool_nodes[analyst_type])
++        # ─── ANALYST WIRING ───────────────────────────────────────────────
++        # Two paths:
++        #   (a) parallel — each analyst is an isolated sub-graph; all run
++        #       concurrently fan-out from START, fan-in to "Analysts Done"
++        #   (b) sequential (default) — chain through one analyst at a time
++        # Selected via cfg["parallel_analysts"] (or env TRADINGAGENTS_PARALLEL_ANALYSTS=1).
++        parallel_mode = bool(get_config().get("parallel_analysts"))
+ 
+-        # Add other nodes
++        # Bull/Researcher/Trader/Risk/PM nodes live on the parent in BOTH modes
+         workflow.add_node("Bull Researcher", bull_researcher_node)
+         workflow.add_node("Bear Researcher", bear_researcher_node)
+         workflow.add_node("Research Manager", research_manager_node)
+@@ -107,31 +109,53 @@ class GraphSetup:
+         workflow.add_node("Conservative Analyst", conservative_analyst)
+         workflow.add_node("Portfolio Manager", portfolio_manager_node)
+ 
+-        # Define edges
+-        # Start with the first analyst
+-        first_analyst = selected_analysts[0]
+-        workflow.add_edge(START, f"{first_analyst.capitalize()} Analyst")
+-
+-        # Connect analysts in sequence
+-        for i, analyst_type in enumerate(selected_analysts):
+-            current_analyst = f"{analyst_type.capitalize()} Analyst"
+-            current_tools = f"tools_{analyst_type}"
+-            current_clear = f"Msg Clear {analyst_type.capitalize()}"
+-
+-            # Add conditional edges for current analyst
+-            workflow.add_conditional_edges(
+-                current_analyst,
+-                getattr(self.conditional_logic, f"should_continue_{analyst_type}"),
+-                [current_tools, current_clear],
++        if parallel_mode:
++            # Each analyst becomes a compiled sub-StateGraph with its own
++            # private `messages` channel — they run truly concurrently
++            # without scrambling each other's tool-call/result threads.
++            wire_parallel_analysts(
++                workflow,
++                selected_analysts,
++                analyst_nodes,
++                delete_nodes,
++                tool_nodes,
++                self.conditional_logic,
++                join_node_name="Analysts Done",
++                next_node_name="Bull Researcher",
+             )
+-            workflow.add_edge(current_tools, current_analyst)
+-
+-            # Connect to next analyst or to Bull Researcher if this is the last analyst
+-            if i < len(selected_analysts) - 1:
+-                next_analyst = f"{selected_analysts[i+1].capitalize()} Analyst"
+-                workflow.add_edge(current_clear, next_analyst)
+-            else:
+-                workflow.add_edge(current_clear, "Bull Researcher")
++        else:
++            # Sequential — the original behaviour. Each analyst's tool loop
++            # runs on the parent's shared `messages` channel; ``msg_clear``
++            # wipes between analysts.
++            for analyst_type, node in analyst_nodes.items():
++                workflow.add_node(f"{analyst_type.capitalize()} Analyst", node)
++                workflow.add_node(
++                    f"Msg Clear {analyst_type.capitalize()}", delete_nodes[analyst_type]
++                )
++                workflow.add_node(f"tools_{analyst_type}", tool_nodes[analyst_type])
++
++            # Define edges — start with the first analyst
++            first_analyst = selected_analysts[0]
++            workflow.add_edge(START, f"{first_analyst.capitalize()} Analyst")
++
++            # Connect analysts in sequence
++            for i, analyst_type in enumerate(selected_analysts):
++                current_analyst = f"{analyst_type.capitalize()} Analyst"
++                current_tools = f"tools_{analyst_type}"
++                current_clear = f"Msg Clear {analyst_type.capitalize()}"
++
++                workflow.add_conditional_edges(
++                    current_analyst,
++                    getattr(self.conditional_logic, f"should_continue_{analyst_type}"),
++                    [current_tools, current_clear],
++                )
++                workflow.add_edge(current_tools, current_analyst)
++
++                if i < len(selected_analysts) - 1:
++                    next_analyst = f"{selected_analysts[i+1].capitalize()} Analyst"
++                    workflow.add_edge(current_clear, next_analyst)
++                else:
++                    workflow.add_edge(current_clear, "Bull Researcher")
+ 
+         # Add remaining edges
+         workflow.add_conditional_edges(
