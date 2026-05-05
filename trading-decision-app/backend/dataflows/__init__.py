@@ -59,3 +59,4 @@ from . import finnhub_pro      # noqa: F401
 from . import polygon_io       # noqa: F401
 from . import alpha_vantage    # noqa: F401
 from . import akshare_cn       # noqa: F401
+from . import fmp              # noqa: F401

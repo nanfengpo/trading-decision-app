@@ -252,6 +252,48 @@ async def dataflows_cache_stats() -> JSONResponse:
     return JSONResponse(cache_stats())
 
 
+# ---- reflections / memory log ------------------------------------------
+
+@app.get("/api/reflections")
+async def reflections_list(
+    ticker: Optional[str] = None,
+    only_resolved: bool = False,
+    limit: int = 50,
+) -> JSONResponse:
+    """Return TradingAgents' memory-log entries with reflections.
+
+    Each entry: ticker / trade_date / rating / pending / raw_return /
+    alpha_return / holding_days / decision / reflection.
+    """
+    from reflections import list_entries
+    return JSONResponse({
+        "items": list_entries(ticker=ticker, only_resolved=only_resolved, limit=limit),
+    })
+
+
+@app.get("/api/reflections/stats")
+async def reflections_stats() -> JSONResponse:
+    """Aggregate stats across all memory-log entries (for Profile page)."""
+    from reflections import stats
+    return JSONResponse(stats())
+
+
+@app.get("/api/cost-table")
+async def cost_table_endpoint() -> JSONResponse:
+    """Front-end calls this to render its own per-model dollar costs.
+    Returns {provider: [{model, input_per_1m_usd, output_per_1m_usd}, ...]}
+    """
+    from cost_table import PRICE_TABLE
+    out: dict = {}
+    for (provider, model), (inp, outp) in PRICE_TABLE.items():
+        out.setdefault(provider, []).append({
+            "model": model,
+            "input_per_1m_usd": inp,
+            "output_per_1m_usd": outp,
+        })
+    return JSONResponse(out)
+
+
 @app.on_event("startup")
 async def _startup_scanner() -> None:
     """Kick off the opportunities scanner unless explicitly disabled."""

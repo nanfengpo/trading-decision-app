@@ -14,19 +14,45 @@ logger = logging.getLogger(__name__)
 
 
 def yf_retry(func, max_retries=3, base_delay=2.0):
-    """Execute a yfinance call with exponential backoff on rate limits.
+    """Execute a yfinance call with exponential backoff on transient failures.
 
-    yfinance raises YFRateLimitError on HTTP 429 responses but does not
-    retry them internally. This wrapper adds retry logic specifically
-    for rate limits. Other exceptions propagate immediately.
+    Retries on:
+      * HTTP 429 (YFRateLimitError) — the original use case
+      * requests.exceptions.{ConnectionError, Timeout, ChunkedEncodingError,
+        ReadTimeout} — flaky network or yahoo.com 5xx blips
+      * urllib3 ProtocolError (broken pipe / partial response)
+
+    Non-transient errors (auth, 404 unknown ticker, JSONDecodeError on
+    actually malformed responses) propagate immediately without retry.
     """
+    # Imported lazily so failing imports don't break the module at load.
+    transient_excs: tuple[type[BaseException], ...] = (YFRateLimitError,)
+    try:
+        import requests.exceptions as _rex                # type: ignore
+        transient_excs += (
+            _rex.ConnectionError,
+            _rex.Timeout,
+            _rex.ChunkedEncodingError,
+            _rex.ReadTimeout,
+        )
+    except ImportError:
+        pass
+    try:
+        from urllib3.exceptions import ProtocolError      # type: ignore
+        transient_excs += (ProtocolError,)
+    except ImportError:
+        pass
+
     for attempt in range(max_retries + 1):
         try:
             return func()
-        except YFRateLimitError:
+        except transient_excs as e:
             if attempt < max_retries:
                 delay = base_delay * (2 ** attempt)
-                logger.warning(f"Yahoo Finance rate limited, retrying in {delay:.0f}s (attempt {attempt + 1}/{max_retries})")
+                logger.warning(
+                    "Yahoo Finance transient failure (%s), retrying in %.0fs (attempt %d/%d)",
+                    type(e).__name__, delay, attempt + 1, max_retries,
+                )
                 time.sleep(delay)
             else:
                 raise
