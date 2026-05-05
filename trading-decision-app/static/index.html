@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TradingForge · 智策 · 多智能体投研工作台</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header class="hero">
+  <div class="brand-row">
+    <span class="brand-logo" aria-hidden="true">
+      <!-- inline SVG so it follows currentColor + dark theme -->
+      <svg viewBox="0 0 100 100" width="46" height="46" fill="none" stroke="currentColor">
+        <polygon points="50,8 88,30 88,70 50,92 12,70 12,30" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/>
+        <circle cx="32" cy="32" r="5" fill="currentColor" stroke="none"/>
+        <circle cx="68" cy="32" r="5" fill="currentColor" stroke="none"/>
+        <circle cx="32" cy="68" r="5" fill="currentColor" stroke="none"/>
+        <circle cx="68" cy="68" r="5" fill="currentColor" stroke="none"/>
+        <line x1="32" y1="32" x2="50" y2="50" stroke-width="2" opacity="0.5"/>
+        <line x1="68" y1="32" x2="50" y2="50" stroke-width="2" opacity="0.5"/>
+        <line x1="32" y1="68" x2="50" y2="50" stroke-width="2" opacity="0.5"/>
+        <line x1="68" y1="68" x2="50" y2="50" stroke-width="2" opacity="0.5"/>
+        <circle cx="50" cy="50" r="9" fill="currentColor" stroke="none"/>
+      </svg>
+    </span>
+    <div class="brand-text">
+      <div class="meta">TRADINGFORGE · 智策</div>
+      <h1>智策 <span class="brand-en">TradingForge</span></h1>
+      <div class="sub serif">多智能体投研工作台 · 12 agents → 78 strategies → 实时可视化</div>
+    </div>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <div class="tabs-left">
+    <button class="active" data-tab="home">首页</button>
+    <button data-tab="decision">AI 决策</button>
+    <button data-tab="opportunities">⚡ 24h 机会<span class="nav-badge" id="opps-nav-badge" style="display:none;"></span></button>
+    <button data-tab="library">策略库</button>
+    <button data-tab="favorites">⭐ 收藏</button>
+    <button data-tab="profile">个人中心</button>
+  </div>
+  <div class="tabs-right">
+    <span id="auth-status" class="auth-status muted" style="display:none;"></span>
+    <button id="auth-button" class="icon-btn" title="登录 / 注册">👤 登录</button>
+    <button id="theme-toggle" class="icon-btn" title="切换日间/夜间模式" aria-label="切换主题">🌙</button>
+  </div>
+</nav>
+
+<!-- Auth modal -->
+<div id="auth-modal" class="auth-modal" style="display:none;">
+  <div class="auth-modal-card">
+    <button class="auth-close icon-btn" id="auth-close">×</button>
+    <h3 id="auth-title" style="margin-top:0;">登录</h3>
+    <p class="muted" style="font-size:13px;">登录后，历史决策会保存在云端，可在任意设备查看 / 下载。</p>
+
+    <div class="auth-tabs">
+      <button class="auth-tab active" data-mode="signin">登录</button>
+      <button class="auth-tab" data-mode="signup">注册</button>
+      <button class="auth-tab" data-mode="magic">魔法链接</button>
+    </div>
+
+    <form id="auth-form" autocomplete="on" onsubmit="return false;">
+      <div class="field">
+        <label for="auth-email">邮箱</label>
+        <input id="auth-email" type="email" autocomplete="email" required />
+      </div>
+      <div class="field auth-pwd-field">
+        <label for="auth-password">密码</label>
+        <input id="auth-password" type="password" autocomplete="current-password" minlength="6" />
+      </div>
+      <div class="field auth-name-field" style="display:none;">
+        <label for="auth-display-name">显示名称（可选）</label>
+        <input id="auth-display-name" type="text" autocomplete="nickname" />
+      </div>
+      <div class="auth-error muted" id="auth-error"></div>
+      <div style="margin-top:12px; display:flex; gap:8px;">
+        <button class="btn primary" id="auth-submit">登录</button>
+      </div>
+      <div class="muted" id="auth-hint" style="margin-top:8px; font-size:12px;"></div>
+    </form>
+  </div>
+</div>
+
+<div class="wrap">
+
+<!-- ========================================================== -->
+<!--  HOMEPAGE                                                   -->
+<!-- ========================================================== -->
+<section class="tab-content active" id="home">
+  <h2>把多智能体投研 × 策略库装进一张工作台</h2>
+  <p>
+    传统的"AI 选股"通常是单次 LLM 问答 — 给一段提示，得一段回答。本系统不一样：
+    它把 <strong>TradingAgents</strong> 的 12 个智能体（4 个分析师、2 个研究员、3 个风险分析师、3 个经理 + 交易员）
+    组合成一条完整的投研流水线，**实时**显示每个 agent 的进度、工具调用、辩论过程，
+    最终给出 5 档评级（Buy / Overweight / Hold / Underweight / Sell）—
+    并自动从 <strong>78 条策略库</strong>挑出 Top-5 可执行方案。
+  </p>
+
+  <h3>四个核心能力</h3>
+  <div class="framework-grid">
+    <div class="framework-card">
+      <div class="icon">🧠</div>
+      <h4>① TradingAgents</h4>
+      <div class="muted">多智能体投研流程</div>
+      <ul>
+        <li>4 个分析师（市场 / 情绪 / 新闻 / 基本面）</li>
+        <li>2 个研究员对抗辩论（牛 vs 熊）</li>
+        <li>3 方风险讨论（激进 / 中立 / 保守）</li>
+        <li>研究经理 + 投资组合经理裁决</li>
+      </ul>
+    </div>
+    <div class="framework-card">
+      <div class="icon">📚</div>
+      <h4>② 78 条策略库</h4>
+      <div class="muted">7 大类别可执行方案</div>
+      <ul>
+        <li>建仓 · 仓位管理 · 对冲</li>
+        <li>收益增强 · 方向性</li>
+        <li>套利 · 退出</li>
+        <li>每条策略含参数、好处、代价、示例</li>
+      </ul>
+    </div>
+    <div class="framework-card">
+      <div class="icon">🎯</div>
+      <h4>③ 智能匹配</h4>
+      <div class="muted">决策 → 策略</div>
+      <ul>
+        <li>解析评级、观点、波动、周期</li>
+        <li>按品种 + 风险偏好打分排序</li>
+        <li>给出 Top-5 可执行策略与原因</li>
+      </ul>
+    </div>
+    <div class="framework-card">
+      <div class="icon">📡</div>
+      <h4>④ 实时可视化</h4>
+      <div class="muted">SSE 流式更新</div>
+      <ul>
+        <li>12 个智能体进度看板</li>
+        <li>工具调用与日志流</li>
+        <li>报告 / 辩论 / 决策卡片</li>
+        <li>多窗口并行 · 历史决策可回溯</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>怎么用</h3>
+  <ol class="usage-steps">
+    <li><strong>去 "AI 智能决策" Tab</strong> — 输入股票代码、日期、LLM、研究深度等参数。</li>
+    <li><strong>点击"启动"</strong>，每次启动都会开一个新窗口；多个窗口可以同时运行不同标的。</li>
+    <li><strong>实时观察</strong>左侧侧边栏切换不同章节：分析师报告 / 辩论 / 风险讨论 / 最终决策。</li>
+    <li><strong>完成后保存</strong>到历史记录；点击左侧"📜 历史决策"可以随时回看、下载报告。</li>
+  </ol>
+
+  <h3>支持的 LLM 提供商</h3>
+  <table class="matrix">
+    <thead><tr><th>提供商</th><th>深思 / 轻思模型示例</th><th>API Key 环境变量</th></tr></thead>
+    <tbody>
+      <tr><td>OpenAI</td><td>gpt-5.5 / gpt-5.4-mini</td><td><code>OPENAI_API_KEY</code></td></tr>
+      <tr><td>Anthropic Claude</td><td>Opus 4.7 · Sonnet 4.6 · Haiku 4.5</td><td><code>ANTHROPIC_API_KEY</code></td></tr>
+      <tr><td>Google Gemini</td><td>3.1 Pro · 3 Flash · 3.1 Flash-Lite</td><td><code>GOOGLE_API_KEY</code></td></tr>
+      <tr><td>DeepSeek</td><td>V4 Pro Max · V4 Pro · V4 Flash</td><td><code>DEEPSEEK_API_KEY</code></td></tr>
+      <tr><td>Qwen 通义千问</td><td>3.6 Max · 3.6 Plus · 3.6 Flash</td><td><code>DASHSCOPE_API_KEY</code></td></tr>
+      <tr><td>Kimi (Moonshot)</td><td>kimi-k2.6</td><td><code>MOONSHOT_API_KEY</code></td></tr>
+      <tr><td>智谱 GLM</td><td>glm-5</td><td><code>ZHIPU_API_KEY</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>容量</h3>
+  <div class="stats">
+    <div class="stat"><div class="num" id="stat-total">78</div><div class="label">策略总数</div></div>
+    <div class="stat"><div class="num">12</div><div class="label">智能体</div></div>
+    <div class="stat"><div class="num">7</div><div class="label">LLM 提供商</div></div>
+    <div class="stat"><div class="num">5</div><div class="label">评级档位</div></div>
+  </div>
+
+  <!-- ============= RISK DISCLAIMER (merged from old "风险提示") ============ -->
+  <h2 style="margin-top:48px;">风险提示与免责声明</h2>
+
+  <div class="risk-section">
+    <h3>① 通用风险</h3>
+    <ul>
+      <li>所有交易策略都<strong>无法保证盈利</strong>。历史回测和理论模型不代表未来表现。</li>
+      <li>市场可能在任意时刻发生与你预期相反的剧烈变动（黑天鹅、政策、流动性枯竭）。</li>
+      <li>"低风险"策略只是相对概念，极端环境下可能出现远超历史的回撤。</li>
+    </ul>
+
+    <h3>② AI 决策的局限</h3>
+    <ul>
+      <li>多智能体辩论可以降低单一视角偏差，但<strong>不能消除模型的训练数据偏差</strong>。</li>
+      <li>LLM 可能生成看似合理但事实错误的"幻觉"，请将其输出作为参考而非结论。</li>
+      <li>日期 / 行情 / 财报数据来自公开 API，可能滞后或缺失。</li>
+    </ul>
+
+    <h3>③ 杠杆与衍生品风险</h3>
+    <ul>
+      <li>期货、永续合约、保证金交易可能<strong>损失超过本金</strong>，存在爆仓与穿仓风险。</li>
+      <li>期权买方可能<strong>亏损全部权利金</strong>；期权卖方在裸卖时面临理论上无限亏损。</li>
+    </ul>
+
+    <h3>④ 心理与执行风险</h3>
+    <ul>
+      <li>策略本身是中性的，<strong>真正的风险在执行人身上</strong>：不止损、加杠杆、报复性交易。</li>
+      <li>同一个策略不同人执行，结果可能南辕北辙。请先用小仓位验证规则与心理。</li>
+    </ul>
+  </div>
+
+  <div class="callout warn" style="margin-top: 16px;">
+    <strong>免责声明。</strong> 本页内容为决策辅助与策略科普，<strong>不构成投资建议</strong>，<strong>不保证盈利</strong>，<strong>不对任何实盘损失负责</strong>。任何实盘操作前请独立判断或咨询持牌专业人士。
+  </div>
+
+  <footer>
+    智能交易决策系统 v2.0 · 教育目的 · 数据为公开 API + 内置静态策略库
+  </footer>
+</section>
+
+<!-- ========================================================== -->
+<!--  AI DECISION TAB                                            -->
+<!-- ========================================================== -->
+<section class="tab-content" id="decision">
+  <h2>多智能体投研 + 策略库匹配</h2>
+  <p class="muted">
+    输入股票代码与日期，TradingAgents 的 12 个智能体会依次分析、辩论并给出五档评级。
+    <strong>每次启动都开一个新窗口</strong>，可以同时跑多个标的。完成后会自动保存到左侧"历史决策"，可以随时回看、下载报告。
+  </p>
+
+  <!-- Default state: just a big "新建决策" button. Form expands on click. -->
+  <div id="decision-launch" class="decision-launch">
+    <button class="btn primary big" id="decision-launch-btn">▶ 启动新决策</button>
+    <span class="muted" style="font-size:12px; margin-left:12px;">点击后填写参数</span>
+  </div>
+
+  <div class="decision-form" id="decision-form-wrap" style="display:none;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+      <strong style="font-size:15px;">配置新决策</strong>
+      <button class="icon-btn small" id="decision-form-close" title="收起">×</button>
+    </div>
+    <form id="decision-form">
+      <div class="form-grid">
+        <div class="field">
+          <label for="ticker">股票代码 / 交易品种</label>
+          <input id="ticker" type="text" placeholder="例如：NVDA、TSLA、SPY、BTC-USD" value="NVDA" />
+          <span class="hint">支持 yfinance 可识别的股票/ETF/加密代码。</span>
+        </div>
+        <div class="field">
+          <label for="trade-date">分析日期</label>
+          <input id="trade-date" type="date" />
+          <span class="hint">通常用今天或最近交易日。</span>
+        </div>
+        <div class="field">
+          <label for="llm-provider">LLM 提供商 <span id="provider-key-badge" class="pill" style="margin-left:6px;"></span></label>
+          <select id="llm-provider"></select>
+          <span class="hint" id="provider-hint">从 .env 自动检测可用提供商。</span>
+        </div>
+        <div class="field">
+          <label for="deep-llm">深思模型 (deep)</label>
+          <select id="deep-llm"></select>
+          <input id="deep-llm-custom" type="text" placeholder="自定义模型 ID" style="display:none; margin-top:4px;" />
+          <span class="hint">用于辩论与最终决策。</span>
+        </div>
+        <div class="field">
+          <label for="quick-llm">轻思模型 (quick)</label>
+          <select id="quick-llm"></select>
+          <input id="quick-llm-custom" type="text" placeholder="自定义模型 ID" style="display:none; margin-top:4px;" />
+          <span class="hint">用于工具调用与信号处理。</span>
+        </div>
+        <div class="field">
+          <label for="depth">研究深度</label>
+          <select id="depth">
+            <option value="1">1 轮（快速）</option>
+            <option value="2">2 轮（标准）</option>
+            <option value="3">3 轮（深度）</option>
+            <option value="5">5 轮（极致）</option>
+          </select>
+          <span class="hint">投资辩论与风险讨论各跑 N 轮。</span>
+        </div>
+        <div class="field">
+          <label for="language">输出语言</label>
+          <select id="language">
+            <option value="Chinese">中文</option>
+            <option value="English">English</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="instrument">品种偏好（用于策略匹配）</label>
+          <select id="instrument">
+            <option value="">不限</option>
+            <option value="stock" selected>股票</option>
+            <option value="etf">ETF</option>
+            <option value="crypto">加密</option>
+            <option value="gold">黄金</option>
+            <option value="commodity">商品</option>
+            <option value="forex">外汇</option>
+            <option value="bond">债券</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="risk-tolerance">风险偏好</label>
+          <select id="risk-tolerance">
+            <option value="1">保守 ★</option>
+            <option value="2">稳健 ★★</option>
+            <option value="3" selected>中性 ★★★</option>
+            <option value="4">进取 ★★★★</option>
+            <option value="5">激进 ★★★★★</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="mode">运行模式</label>
+          <select id="mode">
+            <option value="auto" selected>自动</option>
+            <option value="live">LIVE — 真实 LLM</option>
+            <option value="demo">DEMO — 脚本模拟</option>
+          </select>
+        </div>
+
+        <div class="analyst-toggles">
+          <label class="checked"><input type="checkbox" id="an-market" checked /> 市场分析师</label>
+          <label class="checked"><input type="checkbox" id="an-social" checked /> 情绪分析师</label>
+          <label class="checked"><input type="checkbox" id="an-news" checked /> 新闻分析师</label>
+          <label class="checked"><input type="checkbox" id="an-fundamentals" checked /> 基本面分析师</label>
+        </div>
+      </div>
+
+      <div style="margin-top: 12px;">
+        <span class="muted" style="font-size:12px;">快速试用情境：</span>
+        <span class="example-chip chip" data-params='{"ticker":"NVDA","trade-date":"2024-05-10","instrument":"stock","risk-tolerance":"4","depth":"1"}'>NVDA · 2024-05</span>
+        <span class="example-chip chip" data-params='{"ticker":"SPY","trade-date":"2024-09-15","instrument":"etf","risk-tolerance":"2","depth":"2"}'>SPY · 防守</span>
+        <span class="example-chip chip" data-params='{"ticker":"BTC-USD","trade-date":"2024-11-08","instrument":"crypto","risk-tolerance":"5","depth":"1"}'>BTC · 高波动</span>
+      </div>
+
+      <div class="form-actions">
+        <button class="btn primary" id="decision-submit">▶ 启动新决策</button>
+        <span class="muted" style="font-size:12px;">每次启动会开一个新窗口</span>
+      </div>
+    </form>
+  </div>
+
+  <!-- WORKSPACE: history sidebar + multiple windows -->
+  <div class="decision-workspace">
+    <aside class="history-sidebar" id="history-sidebar">
+      <div class="history-head">
+        <span class="history-title">📜 历史决策</span>
+        <div style="display:flex; gap:4px;">
+          <button class="icon-btn small" id="history-toggle-filter" title="筛选 / 排序">⚙</button>
+          <button class="icon-btn small" id="history-clear" title="清空全部历史">🗑</button>
+        </div>
+      </div>
+
+      <div class="history-controls" id="history-controls" style="display:none;">
+        <div class="ctrl-row">
+          <label>排序</label>
+          <select id="history-sort">
+            <option value="time-desc">时间 ↓ 新→旧</option>
+            <option value="time-asc">时间 ↑ 旧→新</option>
+            <option value="rating-desc">星级 ↓ 高→低</option>
+            <option value="ticker">品种字母</option>
+          </select>
+        </div>
+        <div class="ctrl-row">
+          <label>建议</label>
+          <select id="history-filter-rating">
+            <option value="all">全部</option>
+            <option value="bull">🟢 多头 (Buy/Overweight)</option>
+            <option value="hold">⚪ 持有 (Hold)</option>
+            <option value="bear">🔴 空头 (Sell/Underweight)</option>
+          </select>
+        </div>
+        <div class="ctrl-row">
+          <label>品种</label>
+          <select id="history-filter-instrument">
+            <option value="all">全部</option>
+            <option value="stock">📈 股票</option>
+            <option value="etf">🧺 ETF</option>
+            <option value="crypto">₿ 加密</option>
+            <option value="commodity">🛢 商品</option>
+            <option value="forex">💱 外汇</option>
+          </select>
+        </div>
+        <div class="ctrl-row">
+          <label>评分</label>
+          <select id="history-filter-stars">
+            <option value="all">全部</option>
+            <option value="5">★★★★★ 仅 5 星</option>
+            <option value="4">★★★★☆ ≥ 4 星</option>
+            <option value="3">★★★☆☆ ≥ 3 星</option>
+            <option value="rated">有评分</option>
+            <option value="unrated">未评分</option>
+          </select>
+        </div>
+        <input type="text" class="search-box" id="history-search" placeholder="搜索代码 / 备注…" style="margin-top:6px; font-size:12px;">
+      </div>
+
+      <div class="history-empty muted" id="history-empty">
+        暂无记录。完成一次分析后会自动保存。
+      </div>
+      <ul class="history-list" id="history-list"></ul>
+    </aside>
+
+    <div class="windows-area">
+      <div class="window-tabs" id="window-tabs">
+        <span class="muted" style="font-size:12px; padding:4px 8px;">尚未启动任何决策窗口</span>
+      </div>
+      <div class="windows-container" id="windows-container">
+        <!-- DecisionWindow instances mount their cockpit here -->
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================== -->
+<!--  24h OPPORTUNITIES                                          -->
+<!-- ========================================================== -->
+<section class="tab-content" id="opportunities">
+  <h2>⚡ 24h 交易机会</h2>
+  <p class="muted">
+    后端持续扫描比特币插针、期权 IV 突变、社交媒体话题暴涨等信号。
+    每条机会都附带可执行策略推荐，点击右上角的 ⭐ 把感兴趣的卡片加入收藏。
+  </p>
+
+  <div class="opps-toolbar opps-toolbar-stack">
+    <div class="filter-row">
+      <span class="label">重要度</span>
+      <button class="chip active" data-opps-sev="all">全部</button>
+      <button class="chip" data-opps-sev="critical">🔴 critical</button>
+      <button class="chip" data-opps-sev="high">🟠 high</button>
+      <button class="chip" data-opps-sev="watch">🟡 watch</button>
+      <button class="chip" data-opps-sev="info">⚪ info</button>
+    </div>
+    <div class="filter-row">
+      <span class="label">品种</span>
+      <button class="chip active" data-opps-inst="all">全部</button>
+      <button class="chip" data-opps-inst="stock">📈 股票</button>
+      <button class="chip" data-opps-inst="etf">🧺 ETF</button>
+      <button class="chip" data-opps-inst="crypto">₿ 加密</button>
+      <button class="chip" data-opps-inst="commodity">🛢 商品</button>
+      <button class="chip" data-opps-inst="forex">💱 外汇</button>
+      <button class="chip" data-opps-inst="macro">🌐 宏观</button>
+    </div>
+    <div class="filter-row">
+      <button class="btn secondary small" id="opps-refresh">🔄 刷新</button>
+      <span class="muted" id="opps-status" style="font-size:12px;"></span>
+    </div>
+  </div>
+
+  <div class="opps-list" id="opps-list">
+    <div class="muted" style="padding:32px; text-align:center;">加载中…</div>
+  </div>
+</section>
+
+<!-- ========================================================== -->
+<!--  FAVORITES                                                  -->
+<!-- ========================================================== -->
+<section class="tab-content" id="favorites">
+  <h2>⭐ 我的收藏</h2>
+  <p class="muted">收藏喜欢的策略 / 历史决策，方便日后回看。登录后会同步到云端。</p>
+
+  <div class="filter-row">
+    <button class="chip active" data-fav-tab="strategy">📚 策略 <span class="badge" id="fav-count-strategy">0</span></button>
+    <button class="chip" data-fav-tab="decision">🎯 历史决策 <span class="badge" id="fav-count-decision">0</span></button>
+    <button class="chip" data-fav-tab="opportunity">⚡ 机会 <span class="badge" id="fav-count-opportunity">0</span></button>
+  </div>
+
+  <div class="favorites-list" id="favorites-list">
+    <div class="muted" style="padding:32px; text-align:center;">未收藏任何策略。</div>
+  </div>
+</section>
+
+<!-- ========================================================== -->
+<!--  PROFILE / 个人中心                                          -->
+<!-- ========================================================== -->
+<section class="tab-content" id="profile">
+  <h2>个人中心</h2>
+
+  <div class="profile-tabs">
+    <button class="profile-tab active" data-profile-tab="info">👤 资料</button>
+    <button class="profile-tab" data-profile-tab="usage">📊 用量</button>
+    <button class="profile-tab" data-profile-tab="settings">⚙️ 设置</button>
+  </div>
+
+  <!-- ===== Sub-tab: 资料 ===== -->
+  <div class="profile-pane active" data-profile-pane="info">
+    <div class="profile-grid">
+      <div class="panel">
+        <div class="head">账号信息</div>
+        <div class="body" id="profile-info">
+          <div class="muted" style="padding:12px 0;">未登录 — 请右上角登录后管理账号资料、数据源 / 大模型 API key、查看用量与历史。</div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="head">活动概览</div>
+        <div class="body">
+          <div class="stats" style="margin: 8px 0;">
+            <div class="stat"><div class="num" id="stat-decisions">—</div><div class="label">决策记录</div></div>
+            <div class="stat"><div class="num" id="stat-favorites">—</div><div class="label">收藏数</div></div>
+            <div class="stat"><div class="num" id="stat-pinned">—</div><div class="label">置顶</div></div>
+            <div class="stat"><div class="num" id="stat-rated">—</div><div class="label">已评分</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Sub-tab: 用量 ===== -->
+  <div class="profile-pane" data-profile-pane="usage">
+    <div class="profile-grid">
+      <div class="panel">
+        <div class="head">大模型用量（按提供商，近 90 天）</div>
+        <div class="body">
+          <p class="muted" style="font-size:12px; margin-top:0;">
+            统计基于已保存的决策数与对应模型选择。<strong>Token 实时数据</strong>需要在 LLM 提供商 dashboard 查看（链接见每行）。
+          </p>
+          <div id="usage-llm">
+            <div class="muted" style="padding:12px 0;">登录后查看。</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="head">数据源状态（后端检测）</div>
+        <div class="body">
+          <p class="muted" style="font-size:12px; margin-top:0;">
+            后端进程当前能用的付费数据源（按 OS 环境变量）。配置请到 <strong>设置 → 数据源 API Key</strong>。
+          </p>
+          <div id="dataflows-status">
+            <div class="muted">加载中…</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="head">数据源使用频次</div>
+        <div class="body">
+          <p class="muted" style="font-size:12px; margin-top:0;">
+            每次 LIVE 决策会让 4 位分析师各自调用一次相应数据源。具体计费 / 配额需在每家 vendor 的 dashboard 查看。
+          </p>
+          <div id="usage-data">
+            <div class="muted" style="padding:12px 0;">登录后统计。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Sub-tab: 设置 ===== -->
+  <div class="profile-pane" data-profile-pane="settings">
+    <div class="profile-grid">
+      <div class="panel">
+        <div class="head">大模型 API Key</div>
+        <div class="body">
+          <p class="muted" style="font-size:12px; margin-top:0;">
+            配置 LLM 提供商的 API key。Key 仅保存在你的 Supabase profile 中（受 RLS 保护），不会暴露给其他用户。
+            <br>
+            ⚠️ 当前后端运行使用的是 <code>.env</code> 中的 key；这里保存的 key 是给「自带 key 部署」准备的。
+          </p>
+          <div id="settings-llm-keys">
+            <div class="muted" style="padding:12px 0;">登录后管理。</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="head">数据源 API Key</div>
+        <div class="body">
+          <p class="muted" style="font-size:12px; margin-top:0;">
+            付费数据源 (Finnhub Pro / Polygon.io / Alpha Vantage / FMP / Nasdaq Data Link / JQData / RQData)。
+          </p>
+          <div id="settings-data-keys">
+            <div class="muted" style="padding:12px 0;">登录后管理。</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="head">个性化偏好</div>
+        <div class="body" id="settings-prefs">
+          <div class="muted" style="padding:12px 0;">登录后保存。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================== -->
+<!--  STRATEGY LIBRARY                                           -->
+<!-- ========================================================== -->
+<section class="tab-content" id="library">
+  <h2>78 条策略全集</h2>
+  <p class="muted">点击任意策略卡片展开详情。可按多个维度组合筛选，搜索框支持中英文模糊匹配。</p>
+
+  <div class="filter-bar">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:12px; flex-wrap:wrap;">
+      <div class="muted" style="font-size:12px;">所有维度均支持<strong>多选</strong>。不选中任何 chip 即表示该维度不过滤。</div>
+      <button class="btn secondary" id="clear-filters" style="font-size:12px; padding:5px 12px;">清空筛选</button>
+    </div>
+    <div class="filter-row">
+      <span class="label">类别</span>
+      <button class="chip" data-filter="cat" data-value="entry">建仓</button>
+      <button class="chip" data-filter="cat" data-value="sizing">仓位管理</button>
+      <button class="chip" data-filter="cat" data-value="hedge">对冲</button>
+      <button class="chip" data-filter="cat" data-value="income">收益增强</button>
+      <button class="chip" data-filter="cat" data-value="directional">方向性</button>
+      <button class="chip" data-filter="cat" data-value="arbitrage">套利</button>
+      <button class="chip" data-filter="cat" data-value="exit">退出</button>
+    </div>
+    <div class="filter-row">
+      <span class="label">品种</span>
+      <button class="chip" data-filter="inst" data-value="stock">股票</button>
+      <button class="chip" data-filter="inst" data-value="etf">ETF</button>
+      <button class="chip" data-filter="inst" data-value="crypto">加密</button>
+      <button class="chip" data-filter="inst" data-value="gold">黄金</button>
+      <button class="chip" data-filter="inst" data-value="oil">原油</button>
+      <button class="chip" data-filter="inst" data-value="commodity">商品</button>
+      <button class="chip" data-filter="inst" data-value="forex">外汇</button>
+      <button class="chip" data-filter="inst" data-value="bond">债券</button>
+    </div>
+    <div class="filter-row">
+      <span class="label">工具</span>
+      <button class="chip" data-filter="tool" data-value="spot">现货</button>
+      <button class="chip" data-filter="tool" data-value="futures">期货</button>
+      <button class="chip" data-filter="tool" data-value="options">期权</button>
+      <button class="chip" data-filter="tool" data-value="perp">永续</button>
+      <button class="chip" data-filter="tool" data-value="margin">保证金</button>
+    </div>
+    <div class="filter-row">
+      <span class="label">观点</span>
+      <button class="chip" data-filter="view" data-value="strong_bull">强烈看涨</button>
+      <button class="chip" data-filter="view" data-value="mild_bull">温和看涨</button>
+      <button class="chip" data-filter="view" data-value="range">区间震荡</button>
+      <button class="chip" data-filter="view" data-value="mild_bear">温和看跌</button>
+      <button class="chip" data-filter="view" data-value="strong_bear">强烈看跌</button>
+      <button class="chip" data-filter="view" data-value="uncertain">不确定</button>
+      <button class="chip" data-filter="view" data-value="high_vol">高波动</button>
+      <button class="chip" data-filter="view" data-value="low_vol">低波动</button>
+    </div>
+    <div class="filter-row">
+      <span class="label">复杂度</span>
+      <button class="chip" data-filter="complexity" data-value="1">★ 极简</button>
+      <button class="chip" data-filter="complexity" data-value="2">★★ 简单</button>
+      <button class="chip" data-filter="complexity" data-value="3">★★★ 中等</button>
+      <button class="chip" data-filter="complexity" data-value="4">★★★★ 较复杂</button>
+      <button class="chip" data-filter="complexity" data-value="5">★★★★★ 高级</button>
+    </div>
+    <div class="filter-row">
+      <span class="label">风险</span>
+      <button class="chip" data-filter="risk" data-value="1">极低</button>
+      <button class="chip" data-filter="risk" data-value="2">较低</button>
+      <button class="chip" data-filter="risk" data-value="3">中等</button>
+      <button class="chip" data-filter="risk" data-value="4">较高</button>
+      <button class="chip" data-filter="risk" data-value="5">极高</button>
+    </div>
+    <div class="filter-row">
+      <span class="label">周期</span>
+      <button class="chip" data-filter="horizon" data-value="intraday">日内</button>
+      <button class="chip" data-filter="horizon" data-value="short">短线 (天-周)</button>
+      <button class="chip" data-filter="horizon" data-value="swing">波段 (周-月)</button>
+      <button class="chip" data-filter="horizon" data-value="mid">中期 (半年-1年)</button>
+      <button class="chip" data-filter="horizon" data-value="long">长期 (1年+)</button>
+    </div>
+    <div class="filter-row" style="margin-top: 12px;">
+      <input type="text" class="search-box" id="search" placeholder="搜索策略名 / 关键词，例如：定投、跨式、铁鹰、Wheel、LEAPS">
+    </div>
+    <div class="muted" style="font-size:12px; margin-top:8px;" id="filter-count">显示 78 / 78 条策略</div>
+  </div>
+
+  <div class="strategy-list" id="strategy-list"></div>
+</section>
+
+</div>
+
+<!-- runtime-config.js sets window.APP_CONFIG (Supabase URL/anon key, API base).
+     When deployed via Cloudflare Pages this can be a static file generated
+     at build time; in dev FastAPI serves it at /api/runtime-config.js. -->
+<script src="/api/runtime-config.js"></script>
+<!-- Supabase JS — only loaded if APP_CONFIG.SUPABASE_URL is set. -->
+<script>
+  if (window.APP_CONFIG && window.APP_CONFIG.SUPABASE_URL) {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+    s.onload = () => window.dispatchEvent(new Event("supabase-ready"));
+    document.head.appendChild(s);
+  } else {
+    // signal "ready" so app.js doesn't wait forever
+    window.addEventListener("DOMContentLoaded", () =>
+      window.dispatchEvent(new Event("supabase-ready")));
+  }
+</script>
+<script src="/auth.js"></script>
+<script src="/strategies.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

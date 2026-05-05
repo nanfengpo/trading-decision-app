@@ -1,0 +1,41 @@
+# --- secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*_API_KEY
+fly_token
+
+# --- python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# --- node / build ---
+node_modules/
+dist/
+build/
+.cache/
+
+# --- editors / OS ---
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# --- TradingAgents runtime data ---
+.tradingagents/
+trading-decision-app/.tradingagents/
+TradingAgents/reports/                # TradingAgents writes outputs here at runtime
+TradingAgents/.tradingagents/
+
+# --- Subtree workspace ---
+patches/                              # local patches kept alongside subtree (see UPSTREAM.md)

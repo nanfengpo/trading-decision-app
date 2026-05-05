@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "trading-decision-app",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/blackmike/Documents/Claude/Code/trading-strategy-system/trading-decision-app/backend && exec python3 -m uvicorn server:app --port 8765 --log-level warning"
+      ],
+      "port": 8765
+    }
+  ]
+}

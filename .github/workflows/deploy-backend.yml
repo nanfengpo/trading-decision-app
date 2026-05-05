@@ -1,0 +1,38 @@
+name: Deploy backend to Fly.io
+
+# Triggers a Fly deploy on every push to main that touches backend code.
+# Frontend (static/) is deployed by Cloudflare Pages's GitHub integration —
+# no workflow needed for that.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "TradingAgents/**"
+      - "trading-decision-app/backend/**"
+      - "trading-decision-app/Dockerfile"
+      - "trading-decision-app/fly.toml"
+      - "trading-decision-app/requirements.txt"
+      - ".github/workflows/deploy-backend.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy → Fly
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-backend
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        run: |
+          flyctl deploy \
+            --config trading-decision-app/fly.toml \
+            --dockerfile trading-decision-app/Dockerfile \
+            --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

@@ -1,0 +1,15 @@
+# --- web server ---
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-dotenv>=1.0
+
+# --- translation layer (uses OpenAI-compatible API for any of:
+#     OpenAI / DeepSeek / Qwen / GLM / Kimi) ---
+openai>=1.40
+
+# --- optional: Supabase JWT verification ---
+PyJWT>=2.8
+cryptography>=42
+
+# --- TradingAgents (LIVE mode) lives in ../TradingAgents/requirements.txt;
+# install separately when you want LIVE mode.

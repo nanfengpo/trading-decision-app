@@ -1,0 +1,16 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" aria-label="TradingForge">
+  <!-- outer hex (forge anvil silhouette) -->
+  <polygon points="50,8 88,30 88,70 50,92 12,70 12,30" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/>
+  <!-- 4 analyst dots in diamond -->
+  <circle cx="32" cy="32" r="5" fill="currentColor" stroke="none"/>
+  <circle cx="68" cy="32" r="5" fill="currentColor" stroke="none"/>
+  <circle cx="32" cy="68" r="5" fill="currentColor" stroke="none"/>
+  <circle cx="68" cy="68" r="5" fill="currentColor" stroke="none"/>
+  <!-- debate edges -->
+  <line x1="32" y1="32" x2="50" y2="50" stroke-width="2" opacity="0.5"/>
+  <line x1="68" y1="32" x2="50" y2="50" stroke-width="2" opacity="0.5"/>
+  <line x1="32" y1="68" x2="50" y2="50" stroke-width="2" opacity="0.5"/>
+  <line x1="68" y1="68" x2="50" y2="50" stroke-width="2" opacity="0.5"/>
+  <!-- decision hub -->
+  <circle cx="50" cy="50" r="9" fill="currentColor" stroke="none"/>
+</svg>

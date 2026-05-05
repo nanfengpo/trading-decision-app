@@ -1,0 +1,1596 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>交易策略体系 · Trading Strategy Framework</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #fbf8f1;
+  --bg-card: #ffffff;
+  --bg-soft: #f3eee2;
+  --text: #1a1a1a;
+  --text-soft: #4a4540;
+  --text-muted: #807a72;
+  --accent: #8b4513;
+  --accent-2: #2d4a3e;
+  --accent-3: #b8860b;
+  --border: #e5dfd0;
+  --border-strong: #c8c0ad;
+  --highlight: #fdf3d8;
+  --danger: #a83232;
+  --success: #2d6b3e;
+  --shadow: 0 1px 2px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.04);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.75;
+  font-size: 15px;
+}
+h1, h2, h3, h4 { font-family: "Songti SC", "STSong", Georgia, "Source Serif Pro", "Times New Roman", serif; letter-spacing: 0.02em; }
+h1 { font-size: 32px; margin: 0 0 8px; }
+h2 { font-size: 24px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 2px solid var(--accent); display: inline-block; }
+h3 { font-size: 18px; margin: 24px 0 8px; color: var(--accent-2); }
+h4 { font-size: 16px; margin: 16px 0 6px; color: var(--accent); }
+p { margin: 8px 0 12px; }
+.muted { color: var(--text-muted); font-size: 13px; }
+.serif { font-family: "Songti SC", Georgia, serif; }
+
+/* layout */
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px 80px; }
+header.hero {
+  padding: 48px 24px 24px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, #fbf8f1 0%, #f3eee2 100%);
+}
+header.hero .meta { color: var(--text-muted); font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; }
+header.hero h1 { font-size: 38px; }
+header.hero .sub { color: var(--text-soft); font-size: 16px; }
+
+/* nav tabs */
+nav.tabs {
+  position: sticky; top: 0; z-index: 50;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  display: flex; justify-content: center; gap: 4px;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+}
+nav.tabs button {
+  background: transparent;
+  border: none;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--text-soft);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.15s;
+}
+nav.tabs button:hover { background: var(--bg-soft); color: var(--text); }
+nav.tabs button.active { background: var(--accent); color: white; font-weight: 500; }
+
+/* sections */
+section.tab-content { display: none; padding-top: 32px; }
+section.tab-content.active { display: block; }
+
+/* overview */
+.framework-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin: 16px 0 24px; }
+.framework-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 18px; }
+.framework-card .icon { font-size: 22px; margin-bottom: 6px; }
+.framework-card h4 { margin-top: 0; }
+.framework-card ul { padding-left: 18px; margin: 8px 0 0; color: var(--text-soft); font-size: 14px; }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 20px 0; }
+.stat { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: center; }
+.stat .num { font-size: 28px; font-family: Georgia, serif; color: var(--accent); font-weight: bold; }
+.stat .label { font-size: 12px; color: var(--text-muted); }
+
+.callout {
+  background: var(--highlight);
+  border-left: 4px solid var(--accent-3);
+  padding: 14px 18px;
+  margin: 16px 0;
+  border-radius: 0 6px 6px 0;
+  font-size: 14px;
+  color: var(--text-soft);
+}
+.callout.warn { background: #fde8e8; border-left-color: var(--danger); }
+.callout strong { color: var(--text); }
+
+table.matrix { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+table.matrix th, table.matrix td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; }
+table.matrix th { background: var(--bg-soft); font-weight: 600; }
+table.matrix tr:nth-child(even) td { background: #fbf8f1; }
+
+/* library */
+.filter-bar { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 20px; box-shadow: var(--shadow); }
+.filter-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; align-items: center; }
+.filter-row .label { font-size: 13px; color: var(--text-muted); width: 64px; flex-shrink: 0; }
+.chip {
+  display: inline-block;
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  cursor: pointer;
+  background: white;
+  font-family: inherit;
+  color: var(--text-soft);
+  transition: all 0.15s;
+}
+.chip:hover { border-color: var(--accent); }
+.chip.active { background: var(--accent); color: white; border-color: var(--accent); }
+.search-box {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  background: white;
+  color: var(--text);
+}
+.search-box:focus { outline: none; border-color: var(--accent); }
+
+.strategy-list { display: grid; gap: 12px; }
+.strategy-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: all 0.15s;
+}
+.strategy-card:hover { border-color: var(--accent); box-shadow: var(--shadow); }
+.strategy-card .header {
+  padding: 14px 18px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+.strategy-card .header-content { flex: 1; min-width: 0; }
+.card-line-1 { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.card-line-1 .num { color: var(--accent); font-family: Georgia, serif; font-weight: 700; }
+.card-line-1 .name-text { font-weight: 600; font-size: 15px; color: var(--text); }
+.card-line-1 .en { color: var(--text-muted); font-size: 13px; }
+.strategy-card .desc { margin-top: 4px; color: var(--text-soft); font-size: 13px; line-height: 1.6; }
+.card-tags { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-top: 10px; align-items: center; }
+.tag-group { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.tag-label { color: var(--text-muted); font-size: 11px; margin-right: 2px; }
+.tag { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--bg-soft); color: var(--text-soft); font-weight: 500; }
+.tag.cat-entry { background: #d4eeff; color: #0d3a6b; }
+.tag.cat-sizing { background: #ffe4d4; color: #6b3a0d; }
+.tag.cat-hedge { background: #d4f0d4; color: #0d4a1e; }
+.tag.cat-income { background: #fff0d4; color: #6b4a0d; }
+.tag.cat-directional { background: #ffd4d4; color: #6b1e1e; }
+.tag.cat-arbitrage { background: #e8d4ff; color: #3a0d6b; }
+.tag.cat-exit { background: #d4d4ff; color: #1e1e6b; }
+.tag.tool-tag { background: #e0f2fe; color: #075985; }
+.tag.view-tag { background: #fef3c7; color: #78350f; }
+.tag.horizon-tag { background: #d1fae5; color: #065f46; }
+.card-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; min-width: 110px; }
+.metric { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+.metric .stars { letter-spacing: 1px; margin-left: 2px; }
+.metric.complex .stars { color: var(--accent-3); }
+.metric.risk-1 .stars { color: #2d6b3e; }
+.metric.risk-2 .stars { color: #5a9b3e; }
+.metric.risk-3 .stars { color: #b8860b; }
+.metric.risk-4 .stars { color: #d97706; }
+.metric.risk-5 .stars { color: #a83232; }
+
+.strategy-card .body { display: none; padding: 0 18px 18px; border-top: 1px solid var(--border); }
+.strategy-card.expanded .body { display: block; }
+.strategy-card .body h4 { margin: 14px 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent-2); font-family: -apple-system, sans-serif; font-weight: 600; }
+.strategy-card .body .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 720px) { .strategy-card .body .row { grid-template-columns: 1fr; } }
+.strategy-card ul { margin: 4px 0; padding-left: 22px; }
+.strategy-card li { margin: 4px 0; font-size: 14px; color: var(--text-soft); }
+.params-table { width: 100%; font-size: 13px; border-collapse: collapse; margin-top: 4px; }
+.params-table td { padding: 4px 8px; border-bottom: 1px solid var(--border); }
+.params-table td:first-child { color: var(--text-muted); width: 40%; }
+.example-box { background: var(--bg-soft); padding: 10px 14px; border-radius: 6px; font-size: 13px; color: var(--text-soft); margin-top: 6px; font-family: "SF Mono", Menlo, monospace; line-height: 1.6; }
+
+.no-results { padding: 32px; text-align: center; color: var(--text-muted); background: var(--bg-card); border: 1px dashed var(--border); border-radius: 8px; }
+
+/* buttons */
+.btn {
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  border: none;
+  font-weight: 500;
+}
+.btn.primary { background: var(--accent); color: white; }
+.btn.primary:hover { background: #6f3610; }
+.btn.secondary { background: white; color: var(--text); border: 1px solid var(--border-strong); }
+.btn.secondary:hover { background: var(--bg-soft); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ai query */
+.ai-form { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 24px; box-shadow: var(--shadow); }
+.ai-form label { display: block; font-weight: 600; margin-bottom: 8px; font-size: 14px; }
+.ai-form textarea {
+  width: 100%; min-height: 140px;
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 12px;
+  font-family: inherit; font-size: 14px;
+  background: var(--bg-soft);
+  color: var(--text);
+  resize: vertical;
+  line-height: 1.6;
+}
+.ai-form textarea:focus { outline: none; border-color: var(--accent); }
+.example-prompts { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 14px; }
+.example-prompt {
+  padding: 4px 10px; font-size: 12px; background: var(--bg-soft);
+  border-radius: 12px; cursor: pointer; color: var(--text-soft);
+  border: 1px solid var(--border);
+}
+.example-prompt:hover { background: var(--accent); color: white; border-color: var(--accent); }
+.ai-result {
+  margin-top: 20px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  display: none;
+  white-space: pre-wrap;
+  line-height: 1.8;
+  font-size: 14px;
+}
+.ai-result.show { display: block; }
+.ai-result h3 { font-family: "Songti SC", Georgia, serif; color: var(--accent-2); margin-top: 14px; }
+.loading { display: inline-flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 13px; }
+.spinner { width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* risk */
+.risk-section { background: #fff8f3; border: 1px solid #f0d8c0; border-radius: 8px; padding: 20px 24px; }
+.risk-section h3 { color: var(--danger); margin-top: 16px; }
+.risk-section ul li { margin: 6px 0; }
+
+/* footer */
+footer { margin-top: 60px; padding-top: 24px; border-top: 1px solid var(--border); text-align: center; color: var(--text-muted); font-size: 12px; }
+.chapter-title { display: block; color: var(--text-muted); font-size: 13px; letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="meta">A COMPREHENSIVE FRAMEWORK</div>
+  <h1>交易策略体系</h1>
+  <div class="sub serif">从品种、工具到时机的全维度策略地图</div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button class="active" data-tab="overview">总览</button>
+  <button data-tab="library">策略库</button>
+  <button data-tab="ai">AI 智能问答</button>
+  <button data-tab="risk">风险提示</button>
+</nav>
+
+<div class="wrap">
+
+<!-- ============ OVERVIEW ============ -->
+<section class="tab-content active" id="overview">
+  <span class="chapter-title">第一章 · 引言</span>
+  <h2>为什么需要策略体系</h2>
+  <p>交易决策的混乱，往往不是缺乏策略，而是<strong>把多种策略错配到错误的场景</strong>。同一个"分批建仓"，在长期看好的优质标的上是低成本武器，在下跌趋势里却是凌迟的刀。策略体系的作用，是建立一张<strong>从情境到工具</strong>的对照表：先问"我面对的是什么"，再问"我能做什么"，最后才问"具体怎么做"。</p>
+
+  <div class="callout">
+    <strong>核心理念。</strong> 没有最好的策略，只有最匹配当前情境（品种 × 工具 × 观点 × 周期 × 风险偏好）的策略组合。
+  </div>
+
+  <span class="chapter-title">第二章 · 五个分类维度</span>
+  <h2>策略的五个分类维度</h2>
+  <div class="framework-grid">
+    <div class="framework-card">
+      <div class="icon">📊</div>
+      <h4>① 品种 Asset</h4>
+      <div class="muted">交易标的本身的属性</div>
+      <ul>
+        <li>股票（个股 / ETF / 指数）</li>
+        <li>加密货币（主流 / 山寨）</li>
+        <li>大宗商品（黄金、原油等）</li>
+        <li>外汇 / 债券</li>
+      </ul>
+    </div>
+    <div class="framework-card">
+      <div class="icon">🛠</div>
+      <h4>② 工具 Instrument</h4>
+      <div class="muted">如何持有这个标的</div>
+      <ul>
+        <li>现货 Spot</li>
+        <li>期货 Futures</li>
+        <li>期权 Options</li>
+        <li>永续合约 Perpetual</li>
+        <li>融资融券 Margin</li>
+      </ul>
+    </div>
+    <div class="framework-card">
+      <div class="icon">🔭</div>
+      <h4>③ 市场观点 View</h4>
+      <div class="muted">你对未来价格的判断</div>
+      <ul>
+        <li>强烈/温和看涨</li>
+        <li>区间震荡</li>
+        <li>温和/强烈看跌</li>
+        <li>不确定 / 高波动 / 低波动</li>
+      </ul>
+    </div>
+    <div class="framework-card">
+      <div class="icon">⏳</div>
+      <h4>④ 时间周期 Horizon</h4>
+      <div class="muted">计划持有多久</div>
+      <ul>
+        <li>日内 Intraday</li>
+        <li>短线 Days–Weeks</li>
+        <li>波段 Weeks–Months</li>
+        <li>中长线 6 月以上</li>
+      </ul>
+    </div>
+    <div class="framework-card">
+      <div class="icon">⚖️</div>
+      <h4>⑤ 风险与复杂度</h4>
+      <div class="muted">承担多少 + 操作多复杂</div>
+      <ul>
+        <li>风险偏好：保守 / 稳健 / 进取 / 激进</li>
+        <li>复杂度：★ 到 ★★★★★</li>
+        <li>资金规模影响策略选择</li>
+      </ul>
+    </div>
+  </div>
+
+  <span class="chapter-title">第三章 · 策略类别</span>
+  <h2>七大策略类别</h2>
+  <table class="matrix">
+    <thead>
+      <tr><th>类别</th><th>代表策略</th><th>解决的问题</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><span class="tag cat-entry">建仓</span></td><td>定投、金字塔、网格、突破</td><td>怎么进场、怎么平摊成本</td></tr>
+      <tr><td><span class="tag cat-sizing">仓位管理</span></td><td>核心-卫星、凯利、风险平价</td><td>每笔投多少、整体怎么配</td></tr>
+      <tr><td><span class="tag cat-hedge">对冲</span></td><td>保护性 Put、Collar、空头期货</td><td>已经持有，怎么防黑天鹅</td></tr>
+      <tr><td><span class="tag cat-income">收益增强</span></td><td>CSP、Covered Call、Wheel、铁鹰</td><td>持有期内怎么持续生息</td></tr>
+      <tr><td><span class="tag cat-directional">方向性</span></td><td>趋势跟踪、动量、价差期权</td><td>怎么赌方向赚资本利得</td></tr>
+      <tr><td><span class="tag cat-arbitrage">套利</span></td><td>期现、跨期、跨市场、资金费率</td><td>怎么赚低风险价差</td></tr>
+      <tr><td><span class="tag cat-exit">退出</span></td><td>固定止损、移动止损、分批止盈</td><td>什么时候、怎么退场</td></tr>
+    </tbody>
+  </table>
+
+  <h2>体系容量</h2>
+  <div class="stats" id="overview-stats">
+    <div class="stat"><div class="num" id="stat-total">78</div><div class="label">策略总数</div></div>
+    <div class="stat"><div class="num">7</div><div class="label">策略类别</div></div>
+    <div class="stat"><div class="num">8</div><div class="label">覆盖品种</div></div>
+    <div class="stat"><div class="num">5</div><div class="label">交易工具</div></div>
+  </div>
+
+  <span class="chapter-title">使用指南</span>
+  <h2>怎么用这个体系</h2>
+  <p style="color: var(--text-soft);">两种典型用法：</p>
+  <ol style="line-height: 2;">
+    <li><strong>有明确想法时</strong>，去 <em>策略库</em> 按品种 / 工具 / 周期 / 风险等多维度组合筛选，逐条阅读匹配的策略卡。</li>
+    <li><strong>情况特殊或需要组合策略时</strong>，用 <em>AI 智能问答</em> 描述完整情境，让 AI 从全部 78 条策略中综合推荐。</li>
+  </ol>
+  <div class="callout warn">
+    <strong>免责声明。</strong> 本页内容为策略科普与决策辅助，不构成任何投资建议。任何实盘操作前，请独立判断或咨询持牌专业人士。
+  </div>
+</section>
+
+<!-- ============ LIBRARY ============ -->
+<section class="tab-content" id="library">
+  <span class="chapter-title">第四章 · 策略库</span>
+  <h2>策略全集</h2>
+  <p class="muted">点击任意策略卡片展开详情。可按多个维度组合筛选，搜索框支持中英文模糊匹配。</p>
+
+  <div class="filter-bar">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:12px; flex-wrap:wrap;">
+      <div class="muted" style="font-size:12px;">所有维度均支持<strong>多选</strong>。不选中任何 chip 即表示该维度不过滤。</div>
+      <button class="btn secondary" id="clear-filters" style="font-size:12px; padding:5px 12px;">清空筛选</button>
+    </div>
+
+    <div class="filter-row">
+      <span class="label">类别</span>
+      <button class="chip" data-filter="cat" data-value="entry">建仓</button>
+      <button class="chip" data-filter="cat" data-value="sizing">仓位管理</button>
+      <button class="chip" data-filter="cat" data-value="hedge">对冲</button>
+      <button class="chip" data-filter="cat" data-value="income">收益增强</button>
+      <button class="chip" data-filter="cat" data-value="directional">方向性</button>
+      <button class="chip" data-filter="cat" data-value="arbitrage">套利</button>
+      <button class="chip" data-filter="cat" data-value="exit">退出</button>
+    </div>
+    <div class="filter-row">
+      <span class="label">品种</span>
+      <button class="chip" data-filter="inst" data-value="stock">股票</button>
+      <button class="chip" data-filter="inst" data-value="etf">ETF</button>
+      <button class="chip" data-filter="inst" data-value="crypto">加密</button>
+      <button class="chip" data-filter="inst" data-value="gold">黄金</button>
+      <button class="chip" data-filter="inst" data-value="oil">原油</button>
+      <button class="chip" data-filter="inst" data-value="commodity">商品</button>
+      <button class="chip" data-filter="inst" data-value="forex">外汇</button>
+      <button class="chip" data-filter="inst" data-value="bond">债券</button>
+    </div>
+    <div class="filter-row">
+      <span class="label">工具</span>
+      <button class="chip" data-filter="tool" data-value="spot">现货</button>
+      <button class="chip" data-filter="tool" data-value="futures">期货</button>
+      <button class="chip" data-filter="tool" data-value="options">期权</button>
+      <button class="chip" data-filter="tool" data-value="perp">永续</button>
+      <button class="chip" data-filter="tool" data-value="margin">保证金</button>
+    </div>
+    <div class="filter-row">
+      <span class="label">观点</span>
+      <button class="chip" data-filter="view" data-value="strong_bull">强烈看涨</button>
+      <button class="chip" data-filter="view" data-value="mild_bull">温和看涨</button>
+      <button class="chip" data-filter="view" data-value="range">区间震荡</button>
+      <button class="chip" data-filter="view" data-value="mild_bear">温和看跌</button>
+      <button class="chip" data-filter="view" data-value="strong_bear">强烈看跌</button>
+      <button class="chip" data-filter="view" data-value="uncertain">不确定</button>
+      <button class="chip" data-filter="view" data-value="high_vol">高波动</button>
+      <button class="chip" data-filter="view" data-value="low_vol">低波动</button>
+    </div>
+    <div class="filter-row">
+      <span class="label">复杂度</span>
+      <button class="chip" data-filter="complexity" data-value="1">★ 极简</button>
+      <button class="chip" data-filter="complexity" data-value="2">★★ 简单</button>
+      <button class="chip" data-filter="complexity" data-value="3">★★★ 中等</button>
+      <button class="chip" data-filter="complexity" data-value="4">★★★★ 较复杂</button>
+      <button class="chip" data-filter="complexity" data-value="5">★★★★★ 高级</button>
+    </div>
+    <div class="filter-row">
+      <span class="label">风险</span>
+      <button class="chip" data-filter="risk" data-value="1">极低</button>
+      <button class="chip" data-filter="risk" data-value="2">较低</button>
+      <button class="chip" data-filter="risk" data-value="3">中等</button>
+      <button class="chip" data-filter="risk" data-value="4">较高</button>
+      <button class="chip" data-filter="risk" data-value="5">极高</button>
+    </div>
+    <div class="filter-row">
+      <span class="label">周期</span>
+      <button class="chip" data-filter="horizon" data-value="intraday">日内</button>
+      <button class="chip" data-filter="horizon" data-value="short">短线 (天-周)</button>
+      <button class="chip" data-filter="horizon" data-value="swing">波段 (周-月)</button>
+      <button class="chip" data-filter="horizon" data-value="mid">中期 (半年-1年)</button>
+      <button class="chip" data-filter="horizon" data-value="long">长期 (1年+)</button>
+    </div>
+
+    <div class="filter-row" style="margin-top: 12px;">
+      <input type="text" class="search-box" id="search" placeholder="搜索策略名 / 关键词，例如：定投、跨式、铁鹰、Wheel、LEAPS">
+    </div>
+    <div class="muted" style="font-size:12px; margin-top:8px;" id="filter-count">显示 78 / 78 条策略</div>
+  </div>
+
+  <div class="strategy-list" id="strategy-list"></div>
+</section>
+
+<!-- ============ AI QUERY ============ -->
+<section class="tab-content" id="ai">
+  <span class="chapter-title">第五章 · AI 顾问</span>
+  <h2>AI 智能策略问答</h2>
+  <p class="muted">用自然语言描述你的情境，AI 会从全部 78 条策略中挑选 2-4 条最匹配的，给出参数、好处与代价。</p>
+
+  <div class="ai-form">
+    <label>描述你的交易情境</label>
+    <div class="muted" style="margin-bottom: 8px;">建议包含：标的、当前价格、未来观点、持有周期、可用工具、风险承受、心理顾虑</div>
+
+    <div class="example-prompts" id="example-prompts">
+      <span class="example-prompt" data-prompt="我看好美光（MU）这只股票，当前价 $130，担心现在是高点又怕涨过头，计划持有 1-2 年，资金 5 万美元，可以做美股期权但不熟悉。">美光 · 怕高怕踏空</span>
+      <span class="example-prompt" data-prompt="我有 1 万美元想做 BTC 长期持仓，但是不希望一次性买入。同时账户里有期货权限，希望能在持仓时增加一些被动收益。">BTC · 长期 + 增收</span>
+      <span class="example-prompt" data-prompt="我已经持有 SPY 价值 30 万美元，担心未来 3-6 个月有较大回调，但不想清仓也不想错过可能的反弹。">SPY · 已持仓需要保护</span>
+      <span class="example-prompt" data-prompt="原油近期在 $70-$80 区间反复震荡，我认为短期内还会维持区间。账户支持期货和期权。">原油 · 区间套利</span>
+    </div>
+
+    <textarea id="ai-input" placeholder="例如：我看好美光这只股票，当前价 $130，担心是高点又怕涨过头，计划持 1-2 年，5 万美元资金，账户支持美股期权但不熟练……"></textarea>
+    <div style="margin-top: 12px;">
+      <button class="btn primary" id="ai-submit">让 AI 推荐策略</button>
+      <button class="btn secondary" id="ai-clear">清空</button>
+    </div>
+  </div>
+
+  <div class="ai-result" id="ai-result"></div>
+</section>
+
+<!-- ============ RISK ============ -->
+<section class="tab-content" id="risk">
+  <span class="chapter-title">附录 · 必读</span>
+  <h2>风险提示与免责声明</h2>
+
+  <div class="risk-section">
+    <h3>① 通用风险</h3>
+    <ul>
+      <li>所有交易策略都<strong>无法保证盈利</strong>。历史回测和理论模型不代表未来表现。</li>
+      <li>市场可能在任意时刻发生与你预期相反的剧烈变动（黑天鹅、政策、流动性枯竭）。</li>
+      <li>"低风险"策略只是相对概念，极端环境下可能出现远超历史的回撤。</li>
+    </ul>
+
+    <h3>② 杠杆与衍生品风险</h3>
+    <ul>
+      <li>期货、永续合约、保证金交易可能<strong>损失超过本金</strong>，存在爆仓与穿仓风险。</li>
+      <li>期权买方可能<strong>亏损全部权利金</strong>；期权卖方在裸卖时面临理论上无限亏损。</li>
+      <li>资金费率、展期成本、隔夜利息都会持续侵蚀杠杆头寸。</li>
+    </ul>
+
+    <h3>③ 加密货币特有风险</h3>
+    <ul>
+      <li>交易所跑路、黑客事件、协议漏洞都可能导致<strong>资产归零</strong>。</li>
+      <li>稳定币可能脱锚，永续费率可能极端化。</li>
+      <li>合规与税务环境随地区差异巨大。</li>
+    </ul>
+
+    <h3>④ 心理与执行风险</h3>
+    <ul>
+      <li>策略本身是中性的，<strong>真正的风险在执行人身上</strong>：不止损、加杠杆、报复性交易。</li>
+      <li>同一个策略不同人执行，结果可能南辕北辙。</li>
+      <li>请先用小仓位、模拟盘验证你能否纪律地执行规则。</li>
+    </ul>
+
+    <h3>⑤ 本页面的定位</h3>
+    <ul>
+      <li>本页面是<strong>策略科普与决策辅助工具</strong>，不是投资顾问，不构成任何投资建议。</li>
+      <li>AI 推荐基于公开知识与你输入的描述，可能包含过时或错误信息。</li>
+      <li>任何实盘操作前，请：① 独立思考，② 充分了解工具，③ 必要时咨询持牌专业人士。</li>
+    </ul>
+  </div>
+
+  <footer>
+    交易策略体系 v1.0 · 教育目的 · 数据为内置静态库 · 最后更新 2026-05
+  </footer>
+</section>
+
+</div>
+
+<script>
+const STRATEGIES = [
+  { id:'lump_sum', num:'01', name:'一次性建仓', en:'Lump-Sum Investing', cat:'entry',
+    inst:['stock','etf','crypto','gold','commodity'], tool:['spot'], view:['strong_bull'], horizon:['mid','long'], complexity:1,
+    desc:'一次性投入计划资金，承担入场点风险换取最大资金效率。',
+    when:'对标的有清晰研究 + 当前价格在你愿意持有的区间内 + 不打算频繁交易。',
+    how:'确定仓位上限 → 选定入场日 → 全额买入 → 后续只做止盈止损管理。',
+    params:[['总仓位','由整体资金分配决定'],['入场触发','价格 ≤ 心理价位'],['持有期','≥ 6 个月']],
+    pros:['无机会成本，享受全部上涨','心理简单，无后续决策疲劳','摩擦成本最低'],
+    cons:['高点站岗时心理压力大','短期回撤难以承受','无法平摊单点判断风险'],
+    example:'5 万美金一次性买入 MU @ $130，持有目标 18 个月，止损 -25%。' },
+
+  { id:'dca', num:'02', name:'分批定投', en:'Dollar-Cost Averaging', cat:'entry',
+    inst:['stock','etf','crypto','gold'], tool:['spot'], view:['mild_bull','uncertain','strong_bull'], horizon:['mid','long'], complexity:1,
+    desc:'按固定时间、固定金额分批买入，时间换确定性。',
+    when:'长期看好但短期价格难判断；想消除"择时焦虑"。',
+    how:'总资金 ÷ N 期 → 设定固定频率（每周/双周/月）→ 自动化执行。',
+    params:[['期数 N','4–12 期'],['频率','每两周或每月'],['每期金额','总额 / N']],
+    pros:['平滑成本，永远不会全仓买在最高点','心理负担最小，最易坚持','适合任何熟练度'],
+    cons:['牛市持续上涨时平均成本高于一次性','资金利用率低，机会成本存在'],
+    example:'计划投 5 万美元，分 10 期，每两周投入 5000 美元，约 5 个月建仓完毕。' },
+
+  { id:'value_avg', num:'03', name:'价值平均策略', en:'Value Averaging', cat:'entry',
+    inst:['stock','etf','crypto'], tool:['spot'], view:['mild_bull','uncertain'], horizon:['mid','long'], complexity:3,
+    desc:'按目标持仓市值的固定增长来调整买入额：跌多买、涨少买。',
+    when:'长期目标明确、波动较大的标的；愿意做点计算换取更优成本。',
+    how:'设定每期持仓目标值 → 实际持仓低于目标则补足差额买入，高于目标则少买或卖出。',
+    params:[['初始目标','例如月末持仓 = $5000'],['增量','每月 +$5000'],['偏差容忍','±10%']],
+    pros:['平均成本低于 DCA（因为低位多买）','纪律性强，自动反人性','长期复利效应明显'],
+    cons:['需要计算与跟踪','大跌中需要追加更多资金','大涨阶段会减仓甚至卖出，可能踏空尾部行情'],
+    example:'目标月末持仓 $10k → 月中跌 20%，需补足缺口 $2k；月中涨 20%，只需补 $0 或卖出。' },
+
+  { id:'pyramid', num:'04', name:'金字塔买入法', en:'Pyramid Buying', cat:'entry',
+    inst:['stock','etf','crypto','gold','commodity'], tool:['spot','margin'], view:['strong_bull','mild_bull'], horizon:['swing','mid'], complexity:2,
+    desc:'越涨越少加，趋势确认后递减加仓。',
+    when:'已经入场底仓 + 明确上行趋势 + 想顺势放大仓位但避免顶部追高。',
+    how:'底仓 ≥ 40% → 每上涨 X% 或突破阻力位加仓递减比例 → 总仓位封顶。',
+    params:[['底仓比例','40–50%'],['加仓节奏','每涨 5–10% 一档'],['递减比例','30% → 20% → 10%']],
+    pros:['控制平均成本，趋势越强仓位越大','顶部追高的风险被天然限制','止损线可逐档抬升'],
+    cons:['牛市末期仍可能在阶段顶加最后一档','空头反转时整体浮盈快速回吐','需要纪律执行加仓节点'],
+    example:'40% @ $130, 30% @ $140, 20% @ $150, 10% @ $160；总平均成本 $138。' },
+
+  { id:'reverse_pyramid', num:'05', name:'倒金字塔买入法', en:'Reverse Pyramid', cat:'entry',
+    inst:['stock','etf','crypto','gold'], tool:['spot'], view:['mild_bull','uncertain'], horizon:['mid','long'], complexity:2,
+    desc:'越跌越多加，把更多资金布在更低价位。',
+    when:'看好长期价值 + 预期短期回调 + 资金充足能承受继续下跌。',
+    how:'初始仓位较小 → 每下跌 X% 加仓递增 → 设定最大跌幅止损或止跌。',
+    params:[['首仓','10–20%'],['加仓节奏','每跌 5–8% 一档'],['递增比例','20% → 30% → 50%']],
+    pros:['平均成本极低，反弹收益放大','心理上"低买"满足感'],
+    cons:['趋势继续下跌时风险叠加，等于"接飞刀"','需要深口袋和强心脏','基本面已恶化时是灾难'],
+    example:'20% @ $130, 30% @ $115, 50% @ $100；平均 $109，但若跌到 $80 浮亏巨大。' },
+
+  { id:'grid', num:'06', name:'网格交易', en:'Grid Trading', cat:'entry',
+    inst:['stock','etf','crypto','gold','commodity','forex'], tool:['spot','perp'], view:['range'], horizon:['short','swing'], complexity:3,
+    desc:'在价格区间内布设多档买卖单，机械化低买高卖。',
+    when:'强烈区间震荡 + 标的有明确支撑阻力 + 不需要主观判断方向。',
+    how:'确定区间上下限 → 设 N 个网格 → 每跌一格买一份，每涨一格卖一份。',
+    params:[['区间','例 BTC $55k–$70k'],['网格数','10–30'],['每格仓位','总资金 / N']],
+    pros:['震荡市稳定收割波动','自动化、纪律性强','不需要预测方向'],
+    cons:['单边趋势中亏损或踏空','突破区间后需要重新评估','资金利用率不高'],
+    example:'BTC 区间 $55k–$70k 设 15 格，每格 $1k，每格仓位 0.05 BTC。' },
+
+  { id:'breakout', num:'07', name:'突破跟进', en:'Breakout Entry', cat:'entry',
+    inst:['stock','crypto','commodity','forex'], tool:['spot','futures','perp','margin'], view:['strong_bull','mild_bull'], horizon:['short','swing'], complexity:3,
+    desc:'价格放量突破关键阻力位时入场，顺势而为。',
+    when:'技术面构筑长期形态后的有效突破 + 成交量放大确认。',
+    how:'识别关键阻力 → 等待突破 + 量能确认 → 突破回踩或追入 → 止损设回保位。',
+    params:[['突破位','前高 / 关键均线 / 形态颈线'],['量能','> 20 日均量 1.5x'],['止损','突破位下方 3–5%']],
+    pros:['顺势而为，潜在收益大','入场逻辑清晰可复制','胜率虽不高但赔率高'],
+    cons:['假突破频繁','滑点和追高成本','需要严格止损'],
+    example:'MU 突破 50 周高点 $150 + 量能 2x → 买入，止损 $142。' },
+
+  { id:'pullback', num:'08', name:'回调买入', en:'Pullback Entry', cat:'entry',
+    inst:['stock','etf','crypto','commodity'], tool:['spot'], view:['mild_bull'], horizon:['swing','mid'], complexity:2,
+    desc:'已建立上涨趋势中，等待回调到支撑位再入场。',
+    when:'趋势成立但短期超买 + 你不想追高。',
+    how:'确认上升趋势（如 50 日均线向上）→ 等待回调到关键支撑（前低 / 50 日均线 / 38.2% 黄金分割）→ 入场。',
+    params:[['趋势确认','收盘 > 50 日均线'],['回调目标','前低 / 50 日均线 / 38.2% Fib'],['止损','回调点下方']],
+    pros:['入场点更优，风险回报比好','可结合金字塔分批进场'],
+    cons:['可能等不到回调而踏空','假回调（趋势反转）会损失'],
+    example:'NVDA 趋势中，回调到 50 日均线 $850 时分批买入。' },
+
+  { id:'core_satellite', num:'09', name:'核心-卫星策略', en:'Core-Satellite', cat:'sizing',
+    inst:['stock','etf','crypto','gold','bond'], tool:['spot','options'], view:['mild_bull','uncertain'], horizon:['mid','long'], complexity:2,
+    desc:'60-80% 资金做长期核心仓 + 20-40% 做主动卫星仓。',
+    when:'既要享受长期复利，又想抓短期机会，避免心态在两者间撕扯。',
+    how:'核心 = 宽基 ETF / 优质龙头长期持有；卫星 = 个股波段、期权、加密等高弹性。',
+    params:[['核心','60–80%, 例如 SPY/QQQ/BTC'],['卫星','20–40%, 主题ETF/个股/期权'],['再平衡','季度或半年']],
+    pros:['兼顾稳定与灵活','核心保证不踏空时代 beta','卫星部分可承受失败'],
+    cons:['卫星部分需要主动管理','核心配置选错时拖累整体'],
+    example:'70% SPY/QQQ + 20% MU/NVDA 个股 + 10% BTC 卫星。' },
+
+  { id:'kelly', num:'10', name:'凯利公式仓位', en:'Kelly Criterion', cat:'sizing',
+    inst:['stock','etf','crypto','forex','commodity'], tool:['spot','futures','options','perp'], view:['strong_bull','mild_bull','strong_bear','mild_bear'], horizon:['short','swing','mid'], complexity:5,
+    desc:'用胜率与赔率计算最优仓位比例 f* = (bp − q) / b。',
+    when:'有清晰、可估计的胜率与赔率 + 重复博弈场景 + 认可数学优化。',
+    how:'估计胜率 p、赔率 b、败率 q=1−p → 计算 f* → 实战常用半凯利或四分之一凯利缓冲估计偏差。',
+    params:[['胜率 p','基于回测或经验估计'],['赔率 b','平均盈利/平均亏损'],['实战修正','0.25× ~ 0.5× f*']],
+    pros:['长期复利数学最优','控制连败破产风险'],
+    cons:['估计偏差致命，全凯利波动巨大','只适合可重复的策略，不适合一次性事件'],
+    example:'胜率 60%、赔率 2:1 → f* = (2×0.6−0.4)/2 = 40%；半凯利 = 20% 仓位/笔。' },
+
+  { id:'fixed_frac', num:'11', name:'固定风险比例', en:'Fixed-Fractional Risk', cat:'sizing',
+    inst:['stock','etf','crypto','futures','forex'], tool:['spot','futures','options','perp','margin'], view:['strong_bull','mild_bull','range','mild_bear','strong_bear','uncertain'], horizon:['intraday','short','swing','mid'], complexity:1,
+    desc:'每笔交易最大亏损不超过总资金的 1–2%，反推仓位大小。',
+    when:'任何主动交易策略，是最基础的资金管理规则。',
+    how:'设定单笔最大风险 R（如 1%）→ 仓位 = R × 总资金 / (入场价 − 止损价)。',
+    params:[['单笔风险 R','0.5%–2%'],['止损','技术位 / 固定 %'],['总仓位上限','所有未平仓风险合计 ≤ 6%']],
+    pros:['永不爆仓，保全本金第一','简单直接，与任何策略兼容','连败时自动缩小仓位'],
+    cons:['牛市中可能仓位偏小，错过大行情','大资金时绝对仓位可能受流动性限制'],
+    example:'$100k 资金，单笔风险 1.5%（$1500），入场 $130 止损 $125 → 仓位 = 1500/5 = 300 股。' },
+
+  { id:'risk_parity', num:'12', name:'风险平价', en:'Risk Parity', cat:'sizing',
+    inst:['stock','etf','bond','gold','commodity'], tool:['spot','futures'], view:['uncertain'], horizon:['long'], complexity:5,
+    desc:'各资产按"风险贡献"等权配置而非按金额平均，常需要杠杆债券。',
+    when:'多资产长期组合 + 想在不同宏观环境下都稳定 + 接受复杂建模。',
+    how:'估计各资产波动率 → 按 1/波动率反比例分配权重 → 通常用债券杠杆补足风险贡献。',
+    params:[['资产池','股、债、商品、黄金'],['杠杆','债券常用 1.5–2x'],['再平衡','月度']],
+    pros:['风险分散最彻底，回撤更可控','在不同经济周期都有稳定表现'],
+    cons:['对利率敏感（债券杠杆）','复杂、需主动管理','成本与流动性挑战'],
+    example:'股 25% / 债 50%（含杠杆）/ 黄金 15% / 商品 10%，每月再平衡。' },
+
+  { id:'barbell', num:'13', name:'杠铃策略', en:'Barbell Strategy', cat:'sizing',
+    inst:['stock','etf','crypto','bond'], tool:['spot','options'], view:['uncertain'], horizon:['mid','long'], complexity:3,
+    desc:'90% 极保守 + 10% 极进取，避开中等风险，构造凸性收益。',
+    when:'宏观不确定性极高 + 不想"中庸的中等风险"被双向收割。',
+    how:'90% 短期国债/货币基金 → 锁定本金；10% 期权/加密/个股长期看涨期权 → 博取尾部收益。',
+    params:[['保守仓','85–95%, 短债/货基'],['进取仓','5–15%, 期权/加密/小盘'],['进取仓最大可亏','100%']],
+    pros:['上行无限、下行有限（凸性）','心态稳定，多数时间无需操作'],
+    cons:['进取仓大概率归零，需多次尝试','保守仓收益低，长期跑输混合配置可能性'],
+    example:'$100k：$92k 短债 + $8k 远月 SPX 看涨期权或 BTC。' },
+
+  { id:'protective_put', num:'14', name:'保护性看跌', en:'Protective Put', cat:'hedge',
+    inst:['stock','etf','crypto'], tool:['options'], view:['mild_bull','uncertain'], horizon:['short','swing'], complexity:3,
+    desc:'持有现货 + 买入看跌期权对冲下行。',
+    when:'已有持仓不想卖出 + 担心短期下跌 + 愿意付保险费。',
+    how:'持仓 100 股对应买 1 张 put → 选择行权价（接近现价 = 贵且全保护，深虚值 = 便宜只防极端）。',
+    params:[['行权价','现价 95%–100%'],['到期','30–90 天'],['权利金','现货 1–3% / 月']],
+    pros:['保留全部上行','锁定下行最大亏损','心态自由'],
+    cons:['持续付权利金，长期吃利润','过期需要不断展期'],
+    example:'持 100 股 MU @ $130 + 买入 30 天 $120 put 花 $300 → 最大亏 $1300（含权利金）。' },
+
+  { id:'collar', num:'15', name:'领口策略', en:'Collar', cat:'hedge',
+    inst:['stock','etf'], tool:['options'], view:['mild_bull','range'], horizon:['short','swing'], complexity:3,
+    desc:'持有现货 + 买保护性 put + 卖虚值 call，用 call 权利金抵消 put 成本。',
+    when:'想对冲但又不想付太多保险费 + 愿意放弃部分上行收益。',
+    how:'持 100 股 → 买 OTM put → 同时卖 OTM call 收权利金。两者相抵接近"零成本"。',
+    params:[['Put 行权','现价 −5–10%'],['Call 行权','现价 +5–10%'],['到期','一致, 30–90 天']],
+    pros:['几乎零成本对冲','锁定一个明确的盈亏区间'],
+    cons:['上行被 call 行权价封顶','大涨时被迫平仓或亏损平仓 call'],
+    example:'持 100 股 MU @ $130：买 $120 put 花 $300，卖 $145 call 收 $280，净成本 $20。' },
+
+  { id:'short_futures_hedge', num:'16', name:'期货空头对冲', en:'Short Futures Hedge', cat:'hedge',
+    inst:['stock','etf','gold','oil','commodity'], tool:['futures'], view:['mild_bear','uncertain'], horizon:['short','swing'], complexity:4,
+    desc:'用指数期货或对应期货做空，对冲现货组合系统性风险。',
+    when:'大额持仓 + 短期担心系统性下跌 + 不愿/无法清仓现货。',
+    how:'计算组合 beta → 用期货合约价值 × beta = 对冲量 → 反向开空头期货。',
+    params:[['对冲比例','50–100%'],['期货品种','与组合最相关的指数'],['滚动展期','到期前换月']],
+    pros:['资金效率高，保证金占用小','可快速调整对冲度'],
+    cons:['期货展期成本（contango）','上涨时对冲端亏损吃掉收益','需要保证金管理'],
+    example:'$1M SPY 持仓 → 做空 5 张 ES 期货（每张约 $200k 名义）对冲 50% beta。' },
+
+  { id:'cross_asset_hedge', num:'17', name:'跨资产对冲', en:'Cross-Asset Hedge', cat:'hedge',
+    inst:['stock','etf','gold','bond'], tool:['spot'], view:['uncertain'], horizon:['long'], complexity:2,
+    desc:'用相关性反向的资产平衡组合（黄金 / 长期国债对冲股票）。',
+    when:'长期组合风险管理 + 不想动用衍生品 + 接受次优精度。',
+    how:'核心仓中加入 10–25% 黄金或长期国债 → 自然分散风险。',
+    params:[['黄金','5–15%'],['长期国债','10–25%'],['再平衡','半年/年']],
+    pros:['不必平仓主仓','自然分散，长期低相关','无杠杆风险'],
+    cons:['相关性不稳定（2022 年股债双杀）','对冲不精确，仅平滑波动','机会成本'],
+    example:'股 60% + 长债 25% + 黄金 10% + 现金 5%。' },
+
+  { id:'vix_hedge', num:'18', name:'VIX 尾部对冲', en:'VIX Tail Hedge', cat:'hedge',
+    inst:['stock','etf'], tool:['options','futures'], view:['uncertain','strong_bear'], horizon:['short','swing'], complexity:5,
+    desc:'通过 VIX 期货 / 期权对冲股市黑天鹅事件。',
+    when:'担心系统性崩盘 + 愿意为尾部保险持续付费。',
+    how:'分配 1–3% 资金买入远月 VIX call 或 ladder VIX 期货。每月展期。',
+    params:[['配置比例','总仓 1–3%'],['行权','VIX 25–40 区间'],['展期周期','30–60 天']],
+    pros:['危机中爆发性收益（200%+）','保留主仓不动'],
+    cons:['contango 持续吞噬资金，平时持续亏损','非常专业，时机难把握'],
+    example:'$1M 组合 → 每季 $20k 配置 VIX 远月 call。' },
+
+  { id:'csp', num:'19', name:'现金担保看跌', en:'Cash-Secured Put', cat:'income',
+    inst:['stock','etf'], tool:['options'], view:['mild_bull','range'], horizon:['short','swing'], complexity:3,
+    desc:'卖出虚值看跌期权 + 留足等额现金，被行权时以低价接货。',
+    when:'看好标的但觉得现价偏高 + 愿意以更低价持有 + 有融券/现金账户。',
+    how:'选定愿接货价 → 卖该行权价 put → 保留 strike × 100 现金 → 到期在外则白拿权利金，到期内则以 strike 接货。',
+    params:[['行权价','现价 −8–15%'],['到期','30–45 天'],['权利金','strike × 1–2%']],
+    pros:['不跌赚权利金，跌到了相当于打折买入','长期年化可达 8–20%'],
+    cons:['大跌被迫接货且账面浮亏','上行被封顶（错过大涨）','占用资金'],
+    example:'MU 现价 $130，卖 30天 $115 put 收 $200 → 不跌赚 $200，跌破 $115 以 $113 平均成本接 100 股。' },
+
+  { id:'covered_call', num:'20', name:'备兑看涨', en:'Covered Call', cat:'income',
+    inst:['stock','etf','crypto'], tool:['options'], view:['mild_bull','range'], horizon:['short','swing'], complexity:2,
+    desc:'持有现货 + 卖出虚值看涨期权，每月收"租金"。',
+    when:'长期持有 + 预期短期不会大涨 + 愿意以 call 行权价卖出。',
+    how:'持 100 股 → 卖 OTM call → 收权利金 → 到期不到价：白拿；到期超价：以 strike 卖出。',
+    params:[['行权价','现价 +5–10%'],['到期','30–45 天'],['权利金','现货 0.5–1.5%/月']],
+    pros:['持仓中持续现金流','降低成本基础'],
+    cons:['大涨时收益被锁，少赚很多','仍承担全部下行风险'],
+    example:'100 股 MU @ $130 + 卖 30天 $145 call 收 $250，到期 $140 白拿 $250。' },
+
+  { id:'wheel', num:'21', name:'轮动策略 (Wheel)', en:'The Wheel', cat:'income',
+    inst:['stock','etf'], tool:['options'], view:['mild_bull','range'], horizon:['mid','long'], complexity:3,
+    desc:'CSP 接货后转 covered call，再被行权后回到 CSP，持续收权利金。',
+    when:'长期想持有标的 + 想在持有期持续收租。',
+    how:'卖 CSP → 接货 → 卖 covered call → 被行权 → 回到 CSP，循环。',
+    params:[['标的','大盘蓝筹/ETF'],['行权选择','低买高卖各 5–10%'],['到期','30–45 天']],
+    pros:['持续现金流，自然低买高卖','长期年化 12–25% 可期'],
+    cons:['标的暴涨时少赚很多','暴跌时被套且权利金抵不过浮亏','心理上"被行权"易后悔'],
+    example:'MU $130：卖 $115 put → 跌到 $112 接货 → 卖 $130 call → 涨到 $135 被行权 → 重新卖 $115 put。' },
+
+  { id:'credit_spread', num:'22', name:'信用价差', en:'Credit Spread', cat:'income',
+    inst:['stock','etf'], tool:['options'], view:['mild_bull','mild_bear','range'], horizon:['short','swing'], complexity:4,
+    desc:'卖近月期权 + 买更虚值同类期权对冲（牛市:bull put / 熊市:bear call）。',
+    when:'有方向性偏好但保证金有限 + 想限制最大亏损。',
+    how:'卖 ATM 附近期权 → 同时买更虚值同到期期权 → 收净权利金 → 区间内白拿。',
+    params:[['宽度','5–10 美元价差'],['delta','卖端 0.20–0.30'],['到期','30–45 天']],
+    pros:['风险有限，保证金低','胜率高（70%+）'],
+    cons:['收益封顶','需要严格管理风险/收益比通常 1:3'],
+    example:'MU 卖 $115 put + 买 $110 put，净收 $80，最大亏 $420（5×100−80）。' },
+
+  { id:'iron_condor', num:'23', name:'铁鹰式价差', en:'Iron Condor', cat:'income',
+    inst:['stock','etf','crypto'], tool:['options'], view:['range'], horizon:['short','swing'], complexity:4,
+    desc:'同时构建虚值 bull put + bear call 价差，赌价格留在区间内。',
+    when:'强烈区间震荡 + 隐含波动率偏高（IV Rank > 50）。',
+    how:'卖 OTM put 价差 + 卖 OTM call 价差 → 区间内全收双边权利金。',
+    params:[['区间宽度','现价 ±10%'],['翼宽','5–10 美元'],['到期','30–45 天']],
+    pros:['双向收权利金','区间内胜率高'],
+    cons:['突破区间任一边都亏损','尾部风险大于权利金'],
+    example:'MU 卖 $115/$110 put + 卖 $145/$150 call，净收 $200，最大亏 $300。' },
+
+  { id:'funding_arb', num:'24', name:'资金费率套利', en:'Funding-Rate Arbitrage', cat:'income',
+    inst:['crypto'], tool:['spot','perp'], view:['uncertain'], horizon:['short','swing'], complexity:4,
+    desc:'永续费率为正：做空永续 + 做多现货；为负则反向。市场中性收资金费。',
+    when:'加密资金费率显著偏离 0 + 有现货+合约账户。',
+    how:'同等名义价值现货多 + 永续空 → 不论涨跌，每 8 小时收/付资金费率。',
+    params:[['仓位匹配','现货 = 永续名义'],['杠杆','永续 1–3x'],['净化阈值','费率 > 0.01%/8h']],
+    pros:['市场中性，年化稳定 5–30%','可在熊市中赚钱'],
+    cons:['交易所风险（跑路/被盗）','费率突然反转','保证金清算需注意'],
+    example:'BTC 永续 0.05%/8h → 做多 1 BTC 现货 + 做空 1 BTC 永续，年化 ~50%。' },
+
+  { id:'buy_hold', num:'25', name:'长期持有', en:'Buy and Hold', cat:'directional',
+    inst:['stock','etf','bond','gold','crypto'], tool:['spot'], view:['strong_bull','mild_bull'], horizon:['long'], complexity:1,
+    desc:'买入并长期持有优质标的，享受时间复利。',
+    when:'坚定看好基本面长期向上 + 接受过程中的全部回撤。',
+    how:'选择优质龙头/宽基 ETF → 一次或分批买入 → 不主动卖出，仅在基本面恶化时调整。',
+    params:[['持有期','5 年+'],['再评估','每年财报季'],['止损','基本面恶化']],
+    pros:['简单可执行，复利效应','税收效率高（长期持有）','心理负担最低'],
+    cons:['经历完整熊市（−50%+）','机会成本无法避免','基本面变化需主动跟踪'],
+    example:'2010 年买入 AAPL/MSFT 并持有至今，10 年 10x。' },
+
+  { id:'trend_following', num:'26', name:'趋势跟踪', en:'Trend Following', cat:'directional',
+    inst:['stock','etf','crypto','commodity','forex'], tool:['spot','futures','perp'], view:['strong_bull','strong_bear'], horizon:['swing','mid'], complexity:3,
+    desc:'用均线、MACD、动量等指标系统化判断趋势方向，顺势交易。',
+    when:'趋势市场（如 2020 BTC、2023 NVDA）+ 接受频繁止损成本。',
+    how:'金叉信号买入 / 死叉卖出 → 严格执行规则 → 不主观干预。',
+    params:[['均线','50/200 日'],['信号','金叉买、死叉卖'],['止损','均线下方/前低']],
+    pros:['顺势而为，跟踪大行情','规则化，避免情绪干扰'],
+    cons:['震荡市频繁假信号、被反复止损','滞后入场，错过启动段'],
+    example:'SPY 50DMA 上穿 200DMA（金叉）入场，下穿（死叉）退场。' },
+
+  { id:'momentum', num:'27', name:'动量策略', en:'Momentum', cat:'directional',
+    inst:['stock','etf'], tool:['spot'], view:['strong_bull'], horizon:['swing','mid'], complexity:3,
+    desc:'买入近 3-12 个月表现最强的资产，定期再平衡。',
+    when:'广义市场环境健康 + 想用学术因子超额收益。',
+    how:'每月对资产池按过去 6/12 月收益率排序 → 买入前 N% → 持有 1 个月或到下个月调整。',
+    params:[['回看期','6–12 个月'],['持有','1 个月'],['前 N','前 10–20%']],
+    pros:['学术证明的因子，长期有 alpha','简单可量化'],
+    cons:['转折点损失大（动量崩溃）','换手率高，摩擦成本高'],
+    example:'纳指成分股每月排序，买入过去 6 月涨幅前 10% 的股票。' },
+
+  { id:'mean_reversion', num:'28', name:'均值回归', en:'Mean Reversion', cat:'directional',
+    inst:['stock','etf','forex','commodity'], tool:['spot','options'], view:['range'], horizon:['intraday','short'], complexity:3,
+    desc:'买入超跌、卖出超买，赌价格回归均线/区间中枢。',
+    when:'区间震荡市 + 流动性充足标的 + 短期极端波动后。',
+    how:'用 RSI、Bollinger Band、Z-score 等识别极端 → 反向入场 → 回到均值平仓。',
+    params:[['RSI','<30 买、>70 卖'],['Bollinger','突破 ±2σ'],['持仓','3–10 天']],
+    pros:['短线胜率高（60%+）','逻辑直观'],
+    cons:['趋势中持续亏损（接飞刀）','黑天鹅时大幅亏损','需快进快出'],
+    example:'SPY RSI < 30 买入，反弹到 50 平仓。' },
+
+  { id:'bull_call_spread', num:'29', name:'牛市看涨价差', en:'Bull Call Spread', cat:'directional',
+    inst:['stock','etf'], tool:['options'], view:['mild_bull'], horizon:['short','swing'], complexity:3,
+    desc:'买入低行权 call + 卖出高行权 call，温和看涨且控制成本。',
+    when:'温和看涨 + 想降低期权成本 + 接受收益封顶。',
+    how:'买 ITM/ATM call + 卖 OTM call（同到期）→ 净付权利金 → 收益区间锁定。',
+    params:[['宽度','10–20 美元'],['到期','30–60 天'],['净成本','宽度 30–50%']],
+    pros:['比直接买 call 便宜','风险锁定'],
+    cons:['收益封顶','跨过价差区间后再涨与你无关'],
+    example:'MU 买 $130 call + 卖 $145 call，净付 $400，最大赚 $1100。' },
+
+  { id:'bear_put_spread', num:'30', name:'熊市看跌价差', en:'Bear Put Spread', cat:'directional',
+    inst:['stock','etf'], tool:['options'], view:['mild_bear'], horizon:['short','swing'], complexity:3,
+    desc:'买入高行权 put + 卖出低行权 put，温和看跌。',
+    when:'温和看跌 + 想限制单笔亏损 + 不想裸卖期权。',
+    how:'买 ATM put + 卖 OTM put → 净付权利金 → 价格落在价差内则获利。',
+    params:[['宽度','10–20 美元'],['到期','30–60 天'],['净成本','宽度 30–50%']],
+    pros:['比裸 put 便宜','风险有限'],
+    cons:['收益封顶','下跌不到位则全损权利金'],
+    example:'MU 买 $130 put + 卖 $115 put，净付 $400，最大赚 $1100。' },
+
+  { id:'leveraged_dir', num:'31', name:'杠杆做多/做空', en:'Leveraged Directional', cat:'directional',
+    inst:['stock','etf','crypto','futures','forex'], tool:['futures','perp','margin'], view:['strong_bull','strong_bear'], horizon:['intraday','short','swing'], complexity:5,
+    desc:'用期货、永续或保证金放大头寸，追求资金效率与放大收益。',
+    when:'强烈方向性观点 + 严格止损纪律 + 完全理解爆仓机制。',
+    how:'确定杠杆倍数 → 计算名义头寸 → 设硬止损 → 监控保证金率。',
+    params:[['杠杆','2–5x（已经很高）'],['止损','-3% ~ -8%（按杠杆）'],['仓位','单笔风险 ≤ 1.5% 总资金']],
+    pros:['资金效率极高','可双向交易'],
+    cons:['亏损同步放大','爆仓即归零','资金费率/利息持续成本','心理压力极大'],
+    example:'BTC $60k 用 3x 永续多头 0.5 BTC，止损 $58k → 总风险 $1k（约 3%）。' },
+
+  { id:'cash_carry', num:'32', name:'期现套利', en:'Cash-and-Carry Arbitrage', cat:'arbitrage',
+    inst:['gold','oil','commodity','crypto'], tool:['spot','futures'], view:['uncertain'], horizon:['mid'], complexity:4,
+    desc:'买现货 + 卖等量期货锁定基差，吃 contango。',
+    when:'期货溢价显著高于持有成本（仓储 + 利息）。',
+    how:'同时买现货 + 卖远月期货 → 持有到期 → 用现货交割期货。',
+    params:[['基差','> 持有成本 + 利润空间'],['杠杆','期货端 5–10x 保证金'],['持有期','到期日']],
+    pros:['几乎无风险锁定收益','市场中性'],
+    cons:['资金占用大、收益率低','存储/利息成本可能侵蚀利润','基差套利空间往往很小'],
+    example:'金现货 $2400，1 年期货 $2480 → 锁定 3.3% 年化（扣存储后实际 ~2%）。' },
+
+  { id:'calendar_spread', num:'33', name:'跨期价差', en:'Calendar Spread', cat:'arbitrage',
+    inst:['stock','etf'], tool:['options'], view:['range','low_vol'], horizon:['short'], complexity:5,
+    desc:'卖近月期权 + 买远月同行权期权，赚时间衰减差异和波动率变化。',
+    when:'预期短期波动小、远期波动可能上升 + 隐含波动率结构倒挂。',
+    how:'卖近月 ATM call/put + 买远月同 strike call/put → 等近月到期归零，远月留存价值。',
+    params:[['近月','30 天'],['远月','60–90 天'],['行权','ATM']],
+    pros:['利用 theta 时间差','波动率上升时双重获利'],
+    cons:['复杂、Vega 敏感','近月大幅波动会受损'],
+    example:'卖本月 $130 call + 买下月 $130 call，净付 $80。' },
+
+  { id:'cross_exchange', num:'34', name:'跨市场套利', en:'Cross-Exchange Arbitrage', cat:'arbitrage',
+    inst:['crypto'], tool:['spot'], view:['uncertain'], horizon:['intraday'], complexity:4,
+    desc:'利用不同交易所价差，A 所买、B 所卖。',
+    when:'加密 / 跨境市场流动性分割，且价差 > 总成本。',
+    how:'两个交易所同时下单 → 锁定价差 → 后续转账平衡库存。',
+    params:[['价差阈值','> 0.3%（扣手续费后）'],['转账时间','BTC 30min, USDT 5min'],['库存','两边等量']],
+    pros:['低相关于市场方向','可自动化'],
+    cons:['提币延迟期间风险敞口','合规与汇率风险','价差通常很快被填'],
+    example:'BTC 在交易所 A $60k，在 B $60.3k → A 买 B 卖各 1 BTC，赚 $300 减手续费。' },
+
+  { id:'fixed_stop', num:'35', name:'固定止损', en:'Fixed Stop Loss', cat:'exit',
+    inst:['stock','etf','crypto','commodity','forex'], tool:['spot','futures','options','perp','margin'], view:['strong_bull','mild_bull','range','mild_bear','strong_bear','uncertain'], horizon:['intraday','short','swing','mid'], complexity:1,
+    desc:'入场前预设止损价格，跌破即清仓。',
+    when:'任何主动交易，是最基础的风险控制。',
+    how:'入场时确定止损价（技术位或固定 %）→ 设条件单 → 触发自动平仓。',
+    params:[['止损 %','5–10%（个股）/ 3–5%（指数）'],['触发','收盘 / 实时'],['绝不挪动']],
+    pros:['控制单笔最大亏损','解放心理'],
+    cons:['可能止损在最低点','需克制人性挪止损'],
+    example:'$130 入场，止损 $123（−5.4%），单笔最大亏 $700/100 股。' },
+
+  { id:'trailing_stop', num:'36', name:'移动止损', en:'Trailing Stop', cat:'exit',
+    inst:['stock','etf','crypto','commodity','forex'], tool:['spot','futures','perp'], view:['strong_bull','mild_bull','strong_bear','mild_bear'], horizon:['short','swing','mid'], complexity:2,
+    desc:'止损线随价格上行（多头）抬高，下行不动，锁住浮盈。',
+    when:'趋势行情中已有浮盈 + 想保利又留弹性。',
+    how:'设固定百分比或 ATR 倍数 → 价格创新高时同步抬升止损 → 触发出场。',
+    params:[['止损幅度','5–15%'],['ATR 倍数','2–4x'],['触发','收盘']],
+    pros:['锁定利润同时给趋势留空间','纪律化操作'],
+    cons:['大幅波动中容易被洗出','滞后于价格波动'],
+    example:'$130 入场，移动止损 5%，涨到 $150 时止损线 $142.5，跌到此清仓。' },
+
+  { id:'scaled_tp', num:'37', name:'分批止盈', en:'Scaled Take-Profit', cat:'exit',
+    inst:['stock','etf','crypto','commodity'], tool:['spot','futures','perp'], view:['strong_bull','mild_bull'], horizon:['swing','mid'], complexity:2,
+    desc:'上涨过程中分批卖出，锁定利润同时保留剩余博更高。',
+    when:'有浮盈但不确定顶部 + 想兼顾"已落袋"和"没踏空"。',
+    how:'按目标价位分 2–4 批卖出 → 剩余仓位用移动止损管理。',
+    params:[['第一批','+10–15% 卖 1/3'],['第二批','+25–30% 卖 1/3'],['剩余','移动止损 8%']],
+    pros:['分散顶部判断风险','心理友好，每次都"对了"'],
+    cons:['上涨持续时少赚很多','需要事先设定计划'],
+    example:'$130 入场，$143 卖 1/3，$165 卖 1/3，剩余 1/3 用 8% 移动止损。' },
+
+  { id:'time_stop', num:'38', name:'时间止损', en:'Time-Based Exit', cat:'exit',
+    inst:['stock','etf','crypto','options','forex'], tool:['spot','options','futures','perp'], view:['strong_bull','mild_bull','range','mild_bear','strong_bear'], horizon:['intraday','short','swing'], complexity:1,
+    desc:'持有超过预定时间未达预期则平仓，避免资金死锁。',
+    when:'短线、波段交易 + 有明确预期到达时间。',
+    how:'入场时设定时间窗口 → 到期前未达目标即平仓 → 无论盈亏。',
+    params:[['短线','3–10 天'],['波段','30–90 天'],['期权','保留 14 天 theta 之外退出']],
+    pros:['避免资金长期套牢','机会成本可控'],
+    cons:['可能错过后续行情','需克制"再等等"心理'],
+    example:'波段交易，3 个月未上涨 10% 即平仓，无论账面盈亏。' },
+
+  { id:'stock_replacement', num:'39', name:'股票替代 LEAPS', en:'Stock Replacement', cat:'directional',
+    inst:['stock','etf'], tool:['options','spot'], view:['strong_bull','mild_bull'], horizon:['mid','long'], complexity:4, risk:3,
+    desc:'用深度实值长期 call (LEAPS) + 现金/货基，替代直接持有现货，资金效率大幅提升。',
+    when:'长期看好但希望释放资金；想用合理杠杆放大资本效率。',
+    how:'买 1 张 Delta ≥ 0.7 的 LEAPS Call (12-24 月到期) → 剩余资金存短期国债/货基。',
+    params:[['Delta','≥ 0.70'],['到期','12-24 个月'],['替代成本','现货 30-40%']],
+    pros:['资金占用大幅降低','剩余资金生息','下行最大亏损 = 权利金'],
+    cons:['不收分红','时间价值衰减','流动性差，价差大'],
+    example:'AAPL $200，买 24月 $150 LEAPS 花 $6500（替代 100 股 $20000），剩 $13500 存 5% 货基。' },
+
+  { id:'synthetic_long', num:'40', name:'合成多头', en:'Synthetic Long Stock', cat:'directional',
+    inst:['stock','etf'], tool:['options'], view:['strong_bull'], horizon:['short','swing'], complexity:4, risk:4,
+    desc:'买 ATM call + 卖 ATM put（同到期同行权），损益等同 100 股但保证金小。',
+    when:'强烈看涨 + 想最小化资金占用 + 接受期权杠杆隐性。',
+    how:'两腿同时建立，净权利金接近 0；上涨赚 call，下跌承担 put 端被指派接货。',
+    params:[['行权价','ATM'],['到期','30-90 天'],['保证金','卖 put 端 20-25%']],
+    pros:['资金效率极高','成本几乎为零','灵活进出'],
+    cons:['风险等同 100 股','put 端可能被指派','期权流动性挑战'],
+    example:'MU $130，买 $130 call $400 + 卖 $130 put 收 $380，净付 $20，等同持 100 股。' },
+
+  { id:'long_straddle', num:'41', name:'跨式买入', en:'Long Straddle', cat:'directional',
+    inst:['stock','etf','crypto'], tool:['options'], view:['high_vol','uncertain'], horizon:['short','swing'], complexity:3, risk:3,
+    desc:'同时买 ATM call + ATM put，赌价格大幅波动（任一方向）。',
+    when:'重大事件前（财报、议息、并购）+ 隐含波动率仍未充分定价。',
+    how:'两腿同时买入，价格大涨/大跌任一方向都能获利。',
+    params:[['行权价','ATM'],['到期','跨过事件 14-45 天'],['成本','现货 5-8%']],
+    pros:['不需判断方向','大波动时收益可观'],
+    cons:['需大幅波动覆盖双边权利金','事件后 IV crush 损失大','区间内全损'],
+    example:'MU $130，买 30天 $130 call $400 + 买 $130 put $400，需波动 ±6% 以上才获利。' },
+
+  { id:'long_strangle', num:'42', name:'宽跨式买入', en:'Long Strangle', cat:'directional',
+    inst:['stock','etf','crypto'], tool:['options'], view:['high_vol','uncertain'], horizon:['short','swing'], complexity:3, risk:3,
+    desc:'买 OTM call + OTM put，比 straddle 便宜但需更大波动。',
+    when:'同 straddle，但成本敏感且预期波幅更大。',
+    how:'两端同时虚值入场，价格突破任一边即获利。',
+    params:[['Call 行权','+5-8%'],['Put 行权','-5-8%'],['到期','30-60 天']],
+    pros:['成本低于 straddle','突破赔率高'],
+    cons:['需更大波动','区间内全损','IV crush 风险'],
+    example:'MU $130，买 $138 call $200 + 买 $122 put $200，需波动 ±10%。' },
+
+  { id:'short_straddle', num:'43', name:'跨式卖出', en:'Short Straddle', cat:'income',
+    inst:['stock','etf'], tool:['options'], view:['range','low_vol'], horizon:['short'], complexity:5, risk:5,
+    desc:'同时卖 ATM call + ATM put，赌价格不动 + 波动率下降。',
+    when:'强烈区间观点 + 高 IV 即将回落 + 接受裸卖风险。',
+    how:'两端裸卖收双倍权利金；价格停在中心则全收。',
+    params:[['行权价','ATM'],['到期','30-45 天'],['保证金','极高，理论无限']],
+    pros:['权利金收入最大化','IV 下降即赚 vega'],
+    cons:['理论无限亏损（call 端）','黑天鹅毁灭性','保证金占用大'],
+    example:'MU $130，卖 30天 $130 call $400 + 卖 $130 put $400，价格在 $122-$138 区间获利。' },
+
+  { id:'short_strangle', num:'44', name:'宽跨式卖出', en:'Short Strangle', cat:'income',
+    inst:['stock','etf'], tool:['options'], view:['range','low_vol'], horizon:['short'], complexity:5, risk:5,
+    desc:'卖 OTM call + OTM put，区间内躺赢。',
+    when:'区间观点 + IV 偏高 + 想留更宽安全边际。',
+    how:'两端虚值同时卖，区间内收双边权利金。',
+    params:[['Call 行权','+8-12%'],['Put 行权','-8-12%'],['到期','30-45 天']],
+    pros:['胜率高（70%+）','比裸卖跨式安全'],
+    cons:['突破任一边亏损放大','尾部风险大于权利金','保证金占用'],
+    example:'MU $130，卖 $145 call $150 + 卖 $115 put $150，区间内全收 $300。' },
+
+  { id:'butterfly', num:'45', name:'蝴蝶式价差', en:'Long Butterfly', cat:'directional',
+    inst:['stock','etf'], tool:['options'], view:['range'], horizon:['short','swing'], complexity:4, risk:2,
+    desc:'买 1 ITM call + 卖 2 ATM call + 买 1 OTM call，赌价格停在中心。',
+    when:'强烈区间观点 + 想低成本博精准价位 + 风险有限。',
+    how:'三腿同到期对称宽度，中心点最大获利、两端归零。',
+    params:[['宽度','5-10 美元对称'],['到期','30-45 天'],['净付','宽度 10-20%']],
+    pros:['成本极低，赔率高','风险有限'],
+    cons:['需价格精准停在中心','成功率低','流动性差'],
+    example:'MU $130：买 $125 call $700 + 卖 2×$130 call 收 $800 + 买 $135 call $300，净付 $200，最大赚 $300。' },
+
+  { id:'diagonal_spread', num:'46', name:'斜跨价差', en:'Diagonal Spread', cat:'directional',
+    inst:['stock','etf'], tool:['options'], view:['mild_bull','mild_bear'], horizon:['swing'], complexity:5, risk:3,
+    desc:'买远月 ITM + 卖近月 OTM（同方向），结合 calendar 与 vertical 价差。',
+    when:'温和方向 + 想长持远月 + 用近月生息降低成本。',
+    how:'远月 LEAPS-like 多头 + 近月对应方向 OTM 卖空，滚动展期收近月权利金。',
+    params:[['远月','60-120 天'],['近月','7-30 天'],['行权差','5-15 美元']],
+    pros:['长期方向 + 短期收租','灵活展期'],
+    cons:['复杂度高','两腿 vega 不一致带来 IV 风险'],
+    example:'MU 买 90天 $125 call $1000 + 卖 30天 $140 call $200，每月滚动卖近月。' },
+
+  { id:'risk_reversal', num:'47', name:'风险逆转', en:'Risk Reversal', cat:'directional',
+    inst:['stock','etf'], tool:['options'], view:['strong_bull','mild_bull'], horizon:['swing'], complexity:4, risk:4,
+    desc:'卖 OTM put + 买 OTM call，合成低成本（甚至零成本）做多。',
+    when:'强烈看涨 + 愿意以更低价接货 + 现金不足直接买股。',
+    how:'put 端权利金抵消 call 端成本；上涨享受 call 收益，下跌被指派接股。',
+    params:[['Put 行权','-5-10%'],['Call 行权','+5-10%'],['到期','60-180 天']],
+    pros:['可零成本看涨','上行收益放大'],
+    cons:['put 端风险等同接货','下跌时双重打击','保证金要求'],
+    example:'MU $130，卖 $115 put 收 $300 + 买 $145 call 花 $300，零成本入场。' },
+
+  { id:'box_spread', num:'48', name:'盒式套利', en:'Box Spread', cat:'arbitrage',
+    inst:['etf'], tool:['options'], view:['uncertain'], horizon:['short','swing'], complexity:5, risk:1,
+    desc:'同建 bull call spread + bear put spread（同行权区间），等同借出短期资金。',
+    when:'欧式期权（如 SPX）+ 流动性极好 + 想用低于券商利率融资或获取无风险利率。',
+    how:'四腿同时入场，到期收益 = 行权价差 × 100，等同短期债券。',
+    params:[['宽度','100-200 美元（SPX）'],['到期','30-365 天'],['折现率','接近无风险利率']],
+    pros:['理论无风险','可作融资工具'],
+    cons:['美式期权有早期行权风险','流动性挑战','收益微薄'],
+    example:'SPX 4500：买 $4400 call/卖 $4500 call + 买 $4500 put/卖 $4400 put，1 年后净收 $10000。' },
+
+  { id:'ratio_spread', num:'49', name:'比率价差', en:'Ratio Spread', cat:'directional',
+    inst:['stock','etf'], tool:['options'], view:['mild_bull','range'], horizon:['short','swing'], complexity:5, risk:4,
+    desc:'买 1 ATM call + 卖 2 OTM call（1:2 比率），温和看涨但封顶上方。',
+    when:'温和看涨 + 强烈认为不会大涨过 OTM 行权价 + 想零成本入场。',
+    how:'ATM 多头 + 双倍 OTM 空头；中间获利，超 OTM 后裸卖一腿亏损放大。',
+    params:[['行权差','5-10 美元'],['比率','1:2'],['净成本','接近零或小幅收入']],
+    pros:['可零成本入场','中等区间收益佳'],
+    cons:['上方突破后亏损打开（部分裸卖）','保证金要求'],
+    example:'MU $130：买 $130 call $400 + 卖 2×$140 call 收 $400，区间 $130-$150 内获利。' },
+
+  { id:'sixty_forty', num:'50', name:'股债 60/40 组合', en:'60/40 Portfolio', cat:'sizing',
+    inst:['stock','etf','bond'], tool:['spot'], view:['uncertain','mild_bull'], horizon:['long'], complexity:1, risk:2,
+    desc:'60% 股票 + 40% 债券，季度再平衡，最经典的混合组合。',
+    when:'长期被动配置 + 不想做复杂决策 + 想平衡增长与稳定。',
+    how:'宽基股票 ETF (60%) + 综合债券 ETF (40%)，每季度调回比例。',
+    params:[['股票','60% (VTI/SPY)'],['债券','40% (BND/AGG)'],['再平衡','季度/年度']],
+    pros:['长期年化 7-9%','回撤显著低于纯股','无需主动管理'],
+    cons:['利率上行时股债双跌（如 2022）','长期跑不赢纯股牛市'],
+    example:'$100k 配置：$60k VTI + $40k BND，每季再平衡到 60/40。' },
+
+  { id:'permanent_portfolio', num:'51', name:'永久组合', en:'Permanent Portfolio', cat:'sizing',
+    inst:['stock','etf','bond','gold'], tool:['spot'], view:['uncertain'], horizon:['long'], complexity:1, risk:1,
+    desc:'25% 股票 + 25% 长期国债 + 25% 黄金 + 25% 现金，应对通胀/通缩/繁荣/衰退四种宏观环境。',
+    when:'极度不确定 + 想穿越所有经济周期 + 接受较低收益换稳定。',
+    how:'四等份配置，每年再平衡。',
+    params:[['股票','25% (VTI)'],['长债','25% (TLT)'],['黄金','25% (GLD)'],['现金','25% (短债)']],
+    pros:['极低波动','黑天鹅中表现稳健','纪律性强'],
+    cons:['长期收益偏低 (~5-7%)','黄金/现金长期跑输股票'],
+    example:'$100k 平均分配 4 等份，每年 1 月再平衡。' },
+
+  { id:'all_weather', num:'52', name:'全天候组合', en:'All Weather (Dalio)', cat:'sizing',
+    inst:['stock','etf','bond','gold','commodity'], tool:['spot','futures'], view:['uncertain'], horizon:['long'], complexity:3, risk:2,
+    desc:'桥水达里奥配置：30% 股 / 40% 长债 / 15% 中债 / 7.5% 商品 / 7.5% 黄金。',
+    when:'长期资金 + 接受复杂建模 + 想在不同经济环境都低波动。',
+    how:'按风险贡献调权重，长债是核心；季度再平衡。',
+    params:[['股票','30%'],['长债','40%'],['中债','15%'],['商品','7.5%'],['黄金','7.5%']],
+    pros:['多环境稳健','回撤可控'],
+    cons:['长债敞口大、利率敏感','收益率中等','再平衡频繁'],
+    example:'$100k：$30k VTI + $40k TLT + $15k IEF + $7.5k DBC + $7.5k GLD。' },
+
+  { id:'pairs_trading', num:'53', name:'配对交易', en:'Pairs Trading', cat:'arbitrage',
+    inst:['stock','etf'], tool:['spot','margin'], view:['range'], horizon:['swing'], complexity:5, risk:3,
+    desc:'多 A 空 B（同行业相关性高），赌价差回归历史均值。',
+    when:'两只高度相关股票出现历史性背离 + 有融券权限。',
+    how:'计算价差 z-score；偏离 ±2σ 入场（空贵的、多便宜的），回归均值平仓。',
+    params:[['配对','同行业 (KO/PEP)'],['z-score','> 2σ 入场'],['止损','> 3σ']],
+    pros:['市场中性，与大盘无关','统计套利经典'],
+    cons:['相关性可能彻底破裂','融券成本','需建模'],
+    example:'KO/PEP 价差 z=2.5，做多 PEP $50k 同时做空 KO $50k，等回归到 z<0.5 平仓。' },
+
+  { id:'earnings_play', num:'54', name:'财报交易', en:'Earnings Play', cat:'directional',
+    inst:['stock','etf'], tool:['options'], view:['high_vol'], horizon:['short'], complexity:4, risk:4,
+    desc:'财报前买跨式（押大波动）或卖期权（押 IV crush）。',
+    when:'重大财报临近 + 隐含波动率与历史移动幅度有错配。',
+    how:'押大波动 → 买 straddle/strangle；押 IV crush → 卖 iron condor / short strangle。',
+    params:[['入场','财报前 1-3 天'],['退出','财报后 1 天内'],['到期','财报后 1 周']],
+    pros:['短期高赔率事件','规则清晰'],
+    cons:['IV 已被定价','黑天鹅财报巨亏','成本高'],
+    example:'NVDA 财报：预期波动 8% 但 IV 隐含 12% → 卖 iron condor 收高权利金。' },
+
+  { id:'iv_crush', num:'55', name:'IV Crush 收割', en:'IV Crush Harvesting', cat:'income',
+    inst:['stock','etf'], tool:['options'], view:['range'], horizon:['short'], complexity:5, risk:4,
+    desc:'财报或重大事件前卖出高 IV 期权，事件后 IV 崩塌赚 vega。',
+    when:'IV Rank > 70 + 即将有引发 IV 下降的事件。',
+    how:'卖 iron condor / short strangle → 事件后立即平仓（不持仓到期）。',
+    params:[['IV Rank','> 70'],['持仓时长','1-3 天'],['Delta','卖端 ~0.20']],
+    pros:['短时间高 vega 收益','胜率高'],
+    cons:['财报方向出错损失大','保证金占用'],
+    example:'NVDA 财报前 IV Rank 85，卖 short strangle，财报后 IV 降至 30 立即平仓获利。' },
+
+  { id:'merger_arb', num:'56', name:'并购套利', en:'Merger Arbitrage', cat:'arbitrage',
+    inst:['stock'], tool:['spot'], view:['uncertain'], horizon:['short','swing'], complexity:4, risk:2,
+    desc:'已宣布并购：买被收购方，赚现价与收购价的价差。',
+    when:'公开并购公告 + 收购价高于现价 + 完成概率高。',
+    how:'计算 deal spread → 买入被收购方 → 持有到 deal close 兑现。',
+    params:[['Deal spread','3-8% 年化'],['完成时长','3-12 个月'],['止损','交易破裂信号']],
+    pros:['低相关市场方向','上限明确'],
+    cons:['交易破裂时大幅下跌','反垄断/股东风险'],
+    example:'A 公司 $50 收购 B，B 现价 $48 → 买入 B，持有到完成赚 $2 (~4%)。' },
+
+  { id:'halving_dca', num:'57', name:'减半周期定投', en:'BTC Halving Cycle DCA', cat:'entry',
+    inst:['crypto'], tool:['spot'], view:['mild_bull'], horizon:['long'], complexity:2, risk:3,
+    desc:'BTC 减半前 12-18 月加大定投，减半后 12-24 月分批止盈。',
+    when:'认可 BTC 四年周期假设 + 长期看好。',
+    how:'减半前 18-12 月开始 DCA → 减半后 12-24 月分批止盈 → 熊市继续 DCA 下个周期。',
+    params:[['DCA 阶段','减半前后 18+12 月'],['止盈阶段','减半后 12-24 月'],['止盈分批','3-5 次']],
+    pros:['利用历史规律','纪律性强'],
+    cons:['周期可能弱化（ETF 进入）','需多年坚持'],
+    example:'2024 减半：2023-2025 持续 DCA，2025-2026 分批止盈，2026-2027 继续 DCA。' },
+
+  { id:'lp_farming', num:'58', name:'DeFi 流动性挖矿', en:'DeFi LP Farming', cat:'income',
+    inst:['crypto'], tool:['spot'], view:['range','mild_bull'], horizon:['short','swing'], complexity:5, risk:4,
+    desc:'向 DEX 提供 token 对的流动性，赚交易费 + 治理代币奖励。',
+    when:'对智能合约理解充分 + 接受无常损失 + 选择高 TVL 协议。',
+    how:'存入 50/50 token 对到流动性池，收 LP token，质押到 farm 赚奖励。',
+    params:[['池','蓝筹对如 ETH/USDC'],['APR','基础+奖励'],['监控','无常损失/合约风险']],
+    pros:['被动收益高（10-100% APR）','参与生态'],
+    cons:['无常损失','合约漏洞 (rug/hack) 可能归零','奖励代币贬值'],
+    example:'Uniswap V3 ETH/USDC 池存 $10k，年化 ~15% 交易费 + 5% 奖励。' },
+
+  { id:'seasonal', num:'59', name:'季节性交易', en:'Seasonal Trading', cat:'directional',
+    inst:['commodity','oil','gold','stock'], tool:['spot','futures'], view:['mild_bull','mild_bear'], horizon:['swing'], complexity:3, risk:3,
+    desc:'利用商品/股市的历史季节规律（取暖油冬季强、五月卖出 SPY 等）。',
+    when:'有 20+ 年历史数据支持的季节规律 + 当前没有明显破坏因素。',
+    how:'识别季节模式 → 进场前 2-4 周建仓 → 历史出场时间清仓。',
+    params:[['持仓期','3-6 个月'],['止损','打破历史最大回撤'],['仓位','单笔 5-10%']],
+    pros:['低相关 alpha','规则清晰'],
+    cons:['规律可能消失','基本面冲击破坏','样本偏差'],
+    example:'取暖油 9 月底建仓，12 月底-1 月分批退出，过去 20 年 70% 胜率。' },
+
+  { id:'letf_decay', num:'60', name:'杠杆 ETF 衰减做空', en:'Leveraged ETF Decay', cat:'directional',
+    inst:['etf'], tool:['spot','margin'], view:['range','high_vol'], horizon:['mid'], complexity:5, risk:4,
+    desc:'同时做空 3x 多和 3x 空 ETF（如 TQQQ + SQQQ），赚波动率每日复利衰减。',
+    when:'认为标的将继续震荡 + 有融券权限 + 接受单边大行情风险。',
+    how:'各做空相同名义金额，持有数月吃复利衰减；遇到大波动后再平衡。',
+    params:[['配对','TQQQ + SQQQ'],['持有期','3-6 月'],['再平衡','大波动后调回等额']],
+    pros:['利用数学衰减','长期胜率高'],
+    cons:['单边大行情时一边大亏','融券费、保证金高','再平衡复杂'],
+    example:'各做空 $50k TQQQ + $50k SQQQ，持有 6 个月赚 5-10% 衰减。' },
+
+  { id:'backspread', num:'61', name:'反比率价差', en:'Long Backspread', cat:'directional',
+    inst:['stock','etf'], tool:['options'], view:['strong_bull','strong_bear','high_vol'], horizon:['short','swing'], complexity:5, risk:3,
+    desc:'卖 1 ATM call + 买 2 OTM call（反比率），区间内零成本/小赚，单边爆发收益放大。',
+    when:'强烈方向 + 高波动 + 想用零成本捕捉爆发。',
+    how:'1:2 反比率构建（与 ratio spread 相反方向），ATM 端短头对冲入场成本。',
+    params:[['行权差','5-10 美元'],['比率','1:2'],['到期','45-60 天']],
+    pros:['可零成本入场','大方向爆发时收益无上限','与 ratio spread 互为镜像'],
+    cons:['温和波动反而亏损','ATM 端 short call 风险','vega 敏感'],
+    example:'MU $130：卖 $130 call 收 $400 + 买 2×$140 call 花 $400，净付 $0。涨破 $150 后收益放大。' },
+
+  { id:'iron_butterfly', num:'62', name:'铁蝴蝶', en:'Iron Butterfly', cat:'income',
+    inst:['stock','etf'], tool:['options'], view:['range','low_vol'], horizon:['short'], complexity:4, risk:3,
+    desc:'卖 ATM call+put + 两端各买 OTM 保护翼，"短跨式"+"双向保护"的组合。',
+    when:'强烈区间观点 + 想要 short straddle 的高收益但限定最大亏损。',
+    how:'4 腿同时入场：卖 ATM call/put（中心点）+ 买 OTM call/put（两端翼）。',
+    params:[['翼宽','5-15 美元'],['到期','30-45 天'],['净收','宽度的 30-50%']],
+    pros:['权利金收入高于铁鹰','风险有限可控'],
+    cons:['价格须精准停在中心','胜率低于铁鹰','滑点成本'],
+    example:'MU $130：卖 $130 call+$130 put 收 $800 + 买 $140 call+$120 put 花 $400，净收 $400，最大亏 $600。' },
+
+  { id:'jade_lizard', num:'63', name:'玉蜥蜴', en:'Jade Lizard', cat:'income',
+    inst:['stock','etf'], tool:['options'], view:['mild_bull','range'], horizon:['short','swing'], complexity:5, risk:3,
+    desc:'卖 OTM put + 卖 OTM call spread，整体权利金 > call spread 宽度时上方零风险。',
+    when:'温和看涨/区间观点 + IV 较高 + 想消除上行风险。',
+    how:'调整三腿权利金使总收入超过 call 价差宽度；上方 100% 安全，下方接货风险。',
+    params:[['Put 行权','-8-12%'],['Call spread','+5-10%'],['到期','30-45 天']],
+    pros:['上方零风险','胜率高，IV 偏高时有边际优势'],
+    cons:['下方下跌风险全部承担','参数调试繁琐'],
+    example:'MU $130：卖 $115 put $200 + 卖 $145 call $150 + 买 $150 call $50，净收 $300（> $5 价差宽度）。' },
+
+  { id:'zero_dte', num:'64', name:'0DTE 期权', en:'Zero-Day Options', cat:'directional',
+    inst:['etf','stock'], tool:['options'], view:['high_vol','strong_bull','strong_bear'], horizon:['intraday'], complexity:5, risk:5,
+    desc:'当天到期期权（SPX/QQQ/SPY 0DTE）日内进出，利用极端 theta 衰减。',
+    when:'重大事件日 + 流动性好的指数期权 + 全程紧盯盘面。',
+    how:'开盘后入场，根据 gamma 暴露快进快出，绝不持仓过夜。',
+    params:[['标的','SPX/SPY/QQQ'],['持仓时长','分钟到小时'],['止损','权利金 -50%']],
+    pros:['theta 衰减最快，胜率短期高','资金占用小'],
+    cons:['gamma 风险极大，瞬间归零','本质上接近赌博','心理压力极高'],
+    example:'SPY 周五早盘买入当天 ATM call $0.5，价格小涨 0.3% 即翻倍卖出，触发 -50% 止损平仓。' },
+
+  { id:'theta_farming', num:'65', name:'Theta 系统性收割', en:'Systematic Theta Harvesting', cat:'income',
+    inst:['stock','etf'], tool:['options'], view:['range','low_vol'], horizon:['short'], complexity:4, risk:3,
+    desc:'机械化每周/每月卖出 30-45 天 OTM put 或 spread，收时间衰减。',
+    when:'有完整规则集 + 接受小概率大亏 + 资金分散在 5-10 标的。',
+    how:'每周日选 IV Rank > 30 的优质标的卖 0.20-0.30 delta put，21 DTE 平仓 / 50% 利润止盈。',
+    params:[['Delta','0.20-0.30'],['到期','30-45 天'],['止盈','50% 权利金'],['标的数','5-10']],
+    pros:['长期统计优势','分散降低单点风险','自动化'],
+    cons:['黑天鹅时多标的同时损失','需要持续管理','心理对抗连续小赔'],
+    example:'每周日卖 SPY/QQQ/IWM 等 5 标的的 0.25 delta put，到期或 50% 利润平仓。' },
+
+  { id:'rolling_collar', num:'66', name:'滚动 Collar', en:'Rolling Collar', cat:'hedge',
+    inst:['stock','etf'], tool:['options','spot'], view:['mild_bull','uncertain'], horizon:['mid','long'], complexity:3, risk:1,
+    desc:'核心持仓 + 持续滚动 collar 永久对冲（每 30-60 天展期）。',
+    when:'长期持有大额仓位 + 想要"永久保险" + 接受上行有限。',
+    how:'每月卖 OTM call 收权利金抵消 OTM put 成本；价格上涨时上调两端行权价。',
+    params:[['到期','30-60 天'],['Put','-5-8%'],['Call','+5-8%'],['展期','到期前 7-14 天']],
+    pros:['长期低成本对冲','心态完全自由','可在大跌中保持仓位'],
+    cons:['上行被持续封顶','操作复杂度中等','滑点累积'],
+    example:'1000 股 AAPL 持仓，每月滚动 collar：put 行权 -5%、call +5%，全年成本接近零。' },
+
+  { id:'synthetic_borrow', num:'67', name:'加密合成借币', en:'Crypto Synthetic Borrow', cat:'arbitrage',
+    inst:['crypto'], tool:['spot','perp'], view:['uncertain'], horizon:['short','swing'], complexity:4, risk:3,
+    desc:'保留现货 + 等额永续做空 = 锁定法币价值，等同从协议借出现金不用卖币。',
+    when:'需要现金流但不想卖币（税务/长期信仰）+ 资金费率合理。',
+    how:'1 BTC 现货 + 1 BTC 永续空头 → 价格波动相互抵消，产生现金流可作他用。',
+    params:[['仓位匹配','现货 = 永续名义'],['杠杆','永续 1-2x'],['监控','资金费率 + 保证金率']],
+    pros:['不必卖币的"加密贷款"','无 K 线波动暴露'],
+    cons:['资金费率反向时持续付费','保证金清算风险','交易所风险'],
+    example:'持 5 BTC 想用 $200k 现金 → 卖空 $200k 永续 → 锁定法币价值，可借出对应 USDT。' },
+
+  { id:'triangular_arb', num:'68', name:'三角套利', en:'Triangular Arbitrage', cat:'arbitrage',
+    inst:['crypto','forex'], tool:['spot'], view:['uncertain'], horizon:['intraday'], complexity:5, risk:2,
+    desc:'三货币循环兑换：A→B→C→A 套差价，理论无风险。',
+    when:'流动性好的市场出现短暂报价不一致；需要 API/算法快速执行。',
+    how:'监控 USD/BTC/ETH 等三角组合的隐含汇率与显式汇率差异，差价 > 手续费即套利。',
+    params:[['手续费','双边总 0.1-0.4%'],['价差阈值','> 总手续费'],['执行','毫秒级']],
+    pros:['理论无风险','低相关市场方向'],
+    cons:['价差稍纵即逝','需高频基础设施','单笔利润极小'],
+    example:'1 USD → BTC → ETH → USD 循环，发现可得 1.0008 USD，扣除 0.0006 手续费净赚 0.02%。' },
+
+  { id:'fx_carry', num:'69', name:'外汇套息交易', en:'FX Carry Trade', cat:'income',
+    inst:['forex'], tool:['spot','futures'], view:['low_vol','range'], horizon:['mid','long'], complexity:3, risk:4,
+    desc:'借入低利率货币（JPY/CHF）买入高利率货币（AUD/MXN/BRL），赚利差。',
+    when:'宏观稳定期 + 利差 > 隐含波动率 + 不预期重大风险事件。',
+    how:'通过外汇保证金账户做多高息货币 / 做空低息，每日结算 swap 利息。',
+    params:[['利差','> 3%/年'],['杠杆','1-3x'],['止损','-3-5% 即斩仓']],
+    pros:['长期累积息差','低波动期稳定收益'],
+    cons:['危机中一夜归零（"carry typhoon"）','汇率反转损失大于多年息差','杠杆放大'],
+    example:'2010s 借 JPY (0%) 买 AUD (4%)，每年赚 4% 利差 + 汇率收益，2008 一周回吐 30%。' },
+
+  { id:'stable_yield', num:'70', name:'稳定币高息挖矿', en:'Stablecoin Yield', cat:'income',
+    inst:['crypto'], tool:['spot'], view:['low_vol'], horizon:['short','swing'], complexity:3, risk:3,
+    desc:'稳定币（USDC/USDT/DAI）存入借贷协议或 DEX 池赚 5-15% 法币年化。',
+    when:'有 DeFi 经验 + 选择 TVL 充足、审计完整的协议。',
+    how:'存 USDC 到 Aave/Compound 收浮动利率，或入 Curve 3pool 收 LP 费 + CRV 奖励。',
+    params:[['协议','Aave/Compound/Curve'],['APR','基础 + 奖励'],['监控','协议 TVL/利率']],
+    pros:['法币计价稳定','流动性好可随时退出'],
+    cons:['协议漏洞致归零','稳定币脱锚（如 UST 事件）','奖励代币价格波动'],
+    example:'$50k USDC 存 Aave 收 6% 基础利率 + GHO 奖励，年化约 7-8%。' },
+
+  { id:'lsd_arb', num:'71', name:'LSD 流动性质押', en:'Liquid Staking Derivatives', cat:'income',
+    inst:['crypto'], tool:['spot'], view:['mild_bull'], horizon:['mid','long'], complexity:4, risk:3,
+    desc:'持有 stETH/rETH 等 LSD 代币，赚 ETH 质押收益的同时保留流动性。',
+    when:'长期看好 ETH + 想叠加质押收益 + 接受 LSD 折溢价波动。',
+    how:'用 ETH 兑换 stETH（Lido）或 rETH（RocketPool）→ 收每日质押收益 → 必要时市场卖出。',
+    params:[['年化','3-5% (基础质押收益)'],['折溢价','-1% 到 +1%'],['退出','市场或协议赎回']],
+    pros:['保留 ETH 上涨敞口 + 质押收益','LSD 可作其他 DeFi 抵押品再 farming'],
+    cons:['LSD 折价时损失','协议风险','以太坊削减 (slashing) 罕见但存在'],
+    example:'10 ETH 换 10 stETH，年化 3.5% 质押收益，stETH 可继续在 Aave 抵押借贷。' },
+
+  { id:'bond_ladder', num:'72', name:'债券阶梯', en:'Bond Ladder', cat:'sizing',
+    inst:['bond'], tool:['spot'], view:['uncertain'], horizon:['long'], complexity:2, risk:1,
+    desc:'1/3/5/10 年国债等额配置，每年到期再投入新 10 年期，平滑利率风险。',
+    when:'有大额低风险资金 + 想每年获得稳定流动性 + 不愿一次性锁定利率。',
+    how:'初始购买 1Y/3Y/5Y/7Y/10Y 各 20%；到期资金重新买入 10Y → 形成滚动梯队。',
+    params:[['档数','5 档（1/3/5/7/10Y）'],['再投入','到期即投 10Y'],['工具','美债 / 公司债 ETF']],
+    pros:['利率风险分散','每年有流动性到期','加息降息都不致命'],
+    cons:['牛市中跑输股票','需要主动管理到期'],
+    example:'$500k：$100k×5 档，每年到期 $100k 重新买 10Y T-note。' },
+
+  { id:'convertible_arb', num:'73', name:'可转债套利', en:'Convertible Arbitrage', cat:'arbitrage',
+    inst:['stock','bond'], tool:['spot','margin'], view:['high_vol'], horizon:['mid'], complexity:5, risk:3,
+    desc:'多可转债 + 空对应正股，利用债性下限保护 + 期权性上行获利。',
+    when:'可转债定价偏离合理区间 + 有融券权限 + 复杂建模能力。',
+    how:'计算 delta，按比例对冲：每张可转债对应空 N 股股票；动态调整对冲。',
+    params:[['Delta 对冲','按转股价计算'],['目标','利用 vega + carry'],['再平衡','日/周']],
+    pros:['利用债性下限 + 转股权','市场中性'],
+    cons:['可转债流动性差','信用风险','建模门槛高'],
+    example:'某可转债 $100，转股 0.6 → 买 $1M 可转债 + 空 $600k 正股，赚 vega 与 carry。' },
+
+  { id:'smart_beta', num:'74', name:'Smart Beta 因子组合', en:'Smart Beta Factor Portfolio', cat:'sizing',
+    inst:['stock','etf'], tool:['spot'], view:['uncertain','mild_bull'], horizon:['long'], complexity:3, risk:2,
+    desc:'多因子（价值 / 质量 / 动量 / 低波 / 规模）等权配置，超越市值加权。',
+    when:'长期资金 + 想获取学术因子超额 + 接受年度跑输基准的可能。',
+    how:'用因子 ETF（VLUE/QUAL/MTUM/USMV/SIZE）等权配置 → 每年再平衡。',
+    params:[['因子','5 个等权'],['ETF','iShares MSCI 因子系列'],['再平衡','年度']],
+    pros:['学术研究支持的长期 alpha','分散单一因子风险'],
+    cons:['因子轮动周期长','短期可能跑输 SPY','费率略高于宽基'],
+    example:'$100k 平均分配到 VLUE/QUAL/MTUM/USMV/SIZE 各 $20k，每年 1 月再平衡。' },
+
+  { id:'sector_rotation', num:'75', name:'行业轮动', en:'Sector Rotation', cat:'directional',
+    inst:['stock','etf'], tool:['spot'], view:['mild_bull','mild_bear'], horizon:['swing','mid'], complexity:4, risk:3,
+    desc:'根据经济周期切换行业 ETF（复苏-成长-滞胀-衰退对应不同板块）。',
+    when:'有清晰宏观判断框架 + 接受错过行业 alpha 的成本。',
+    how:'识别周期阶段（GDP/CPI/PMI）→ 切换 11 大行业 ETF（XLK/XLF/XLE/XLV/XLP 等）。',
+    params:[['切换信号','PMI 突破/利率拐点'],['持有期','3-12 月'],['仓位','单行业 20-30%']],
+    pros:['抓宏观节奏 alpha','规则清晰可量化'],
+    cons:['周期判断难，常踩反转','换手成本'],
+    example:'PMI 重回 50 上方 → 复苏初期：超配 XLF（金融）+ XLI（工业），低配 XLP（必需消费）。' },
+
+  { id:'div_capture', num:'76', name:'股息收割', en:'Dividend Capture', cat:'income',
+    inst:['stock','etf'], tool:['spot'], view:['uncertain'], horizon:['short'], complexity:2, risk:2,
+    desc:'除息日前买入、除息后卖出，用短期持有换股息。',
+    when:'高股息标的 + 除息日前后基本面无重大变化 + 税务有利。',
+    how:'记录派息日历 → 除息前 1-2 天买入 → 除息后价格回升时卖出。',
+    params:[['股息率','> 4%'],['持有期','3-7 天'],['标的','股息贵族（25年+连续提股息）']],
+    pros:['高频收股息','短持仓减少风险'],
+    cons:['除息日股价通常下调约等股息','税务需短/长期分别处理','摩擦成本'],
+    example:'KO 除息日前买入 $60，分红 $0.45/股，除息后 $59.55；3 天后回升 $59.80 卖出。' },
+
+  { id:'inter_commodity_spread', num:'77', name:'跨品种价差', en:'Inter-commodity Spread', cat:'arbitrage',
+    inst:['gold','oil','commodity'], tool:['futures'], view:['range'], horizon:['swing','mid'], complexity:5, risk:3,
+    desc:'相关商品之间的价差套利：金/银比、原油/汽油 (crack spread)、玉米/小麦。',
+    when:'两品种历史价差极端 + 基本面驱动逻辑成立。',
+    how:'多便宜品种 + 空贵品种（按合约规模配比），等价差回归到历史均值平仓。',
+    params:[['配对','金/银 80:1 历史均值'],['偏离','> 2σ'],['持有期','3-9 月']],
+    pros:['市场中性，与商品方向无关','统计套利'],
+    cons:['基本面变化打破历史关系','保证金占用','期货展期成本'],
+    example:'金/银比 90:1（历史均值 ~70）→ 空黄金 + 多白银，等比值回到 75 平仓。' },
+
+  { id:'vix_term', num:'78', name:'VIX 期限结构套利', en:'VIX Term Structure', cat:'arbitrage',
+    inst:['etf'], tool:['futures','options'], view:['low_vol'], horizon:['short','swing'], complexity:5, risk:4,
+    desc:'利用 VIX 期货 contango（远月 > 近月）做空 VXX，或 backwardation 做多。',
+    when:'VIX 处于低位且期货曲线明显 contango + 接受高频展期成本。',
+    how:'做空 VXX/UVXY（contango 长期吃损）或做多 SVXY（反向 ETN）赚衰减。',
+    params:[['contango','远月-近月 > 5%'],['持有期','数周-数月'],['止损','VIX 突破 25-30']],
+    pros:['长期胜率 80%+','利用结构性衰减'],
+    cons:['黑天鹅时一周大亏 50-80%','短期波动巨大','心理压力极高'],
+    example:'VIX 在 14、远月 17（contango 21%）→ 做空 VXX 1 个月赚 5% 衰减。' }
+];
+
+// 为已有 38 条策略补充 risk 字段（新策略已自带）
+const RISK_MAP = {
+  lump_sum:3, dca:1, value_avg:2, pyramid:2, reverse_pyramid:4, grid:3, breakout:3, pullback:2,
+  core_satellite:2, kelly:4, fixed_frac:1, risk_parity:2, barbell:2,
+  protective_put:1, collar:1, short_futures_hedge:3, cross_asset_hedge:1, vix_hedge:2,
+  csp:3, covered_call:2, wheel:3, credit_spread:3, iron_condor:3, funding_arb:3,
+  buy_hold:3, trend_following:3, momentum:3, mean_reversion:3, bull_call_spread:2, bear_put_spread:2,
+  leveraged_dir:5, cash_carry:1, calendar_spread:4, cross_exchange:3,
+  fixed_stop:1, trailing_stop:1, scaled_tp:1, time_stop:1
+};
+STRATEGIES.forEach(s => { if (s.risk === undefined) s.risk = RISK_MAP[s.id] != null ? RISK_MAP[s.id] : 3; });
+
+const CAT_NAMES = { entry:'建仓', sizing:'仓位管理', hedge:'对冲', income:'收益增强', directional:'方向性', arbitrage:'套利', exit:'退出' };
+const INST_NAMES = { stock:'股票', etf:'ETF', crypto:'加密', gold:'黄金', oil:'原油', commodity:'商品', forex:'外汇', bond:'债券' };
+const TOOL_NAMES = { spot:'现货', futures:'期货', options:'期权', perp:'永续', margin:'保证金' };
+const VIEW_NAMES = { strong_bull:'强烈看涨', mild_bull:'温和看涨', range:'区间震荡', mild_bear:'温和看跌', strong_bear:'强烈看跌', uncertain:'不确定', high_vol:'高波动', low_vol:'低波动' };
+const HORIZON_NAMES = { intraday:'日内', short:'短线', swing:'波段', mid:'中期', long:'长期' };
+
+// =================== HELPERS ===================
+window.openStrategy = function(id) {
+  document.querySelector('nav.tabs button[data-tab="library"]').click();
+  setTimeout(() => {
+    const card = document.querySelector('[data-id="' + id + '"]');
+    if (card) {
+      card.classList.add('expanded');
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, 120);
+};
+
+// =================== TABS ===================
+document.querySelectorAll('nav.tabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tab = btn.dataset.tab;
+    document.querySelectorAll('nav.tabs button').forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('section.tab-content').forEach(s => s.classList.toggle('active', s.id === tab));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+});
+
+// =================== FILTERS (multi-select) ===================
+const filterState = { cat:[], inst:[], tool:[], view:[], horizon:[], complexity:[], risk:[], search:'' };
+const RISK_NAMES = { 1:'极低', 2:'较低', 3:'中等', 4:'较高', 5:'极高' };
+
+document.querySelectorAll('.filter-bar .chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    const f = chip.dataset.filter, v = chip.dataset.value;
+    if (!filterState[f]) return;
+    const arr = filterState[f];
+    const idx = arr.indexOf(v);
+    if (idx === -1) { arr.push(v); chip.classList.add('active'); }
+    else { arr.splice(idx, 1); chip.classList.remove('active'); }
+    renderLibrary();
+  });
+});
+document.getElementById('search').addEventListener('input', e => {
+  filterState.search = e.target.value.toLowerCase().trim();
+  renderLibrary();
+});
+document.getElementById('clear-filters').addEventListener('click', () => {
+  Object.keys(filterState).forEach(k => { filterState[k] = (k === 'search') ? '' : []; });
+  document.querySelectorAll('.filter-bar .chip').forEach(c => c.classList.remove('active'));
+  document.getElementById('search').value = '';
+  renderLibrary();
+});
+
+function stars(n, dimColor) { return '★'.repeat(n) + '<span style="color:#ddd">' + '★'.repeat(5-n) + '</span>'; }
+
+function renderStrategyCard(s) {
+  const toolTags = s.tool.map(t => `<span class="tag tool-tag">${TOOL_NAMES[t]||t}</span>`).join('');
+  const viewTags = s.view.map(v => `<span class="tag view-tag">${VIEW_NAMES[v]||v}</span>`).join('');
+  const horizonTags = s.horizon.map(h => `<span class="tag horizon-tag">${HORIZON_NAMES[h]||h}</span>`).join('');
+  const instTags = s.inst.map(i => `<span class="tag">${INST_NAMES[i]||i}</span>`).join('');
+  const params = s.params.map(p => `<tr><td>${p[0]}</td><td>${p[1]}</td></tr>`).join('');
+  const pros = s.pros.map(p => `<li>${p}</li>`).join('');
+  const cons = s.cons.map(c => `<li>${c}</li>`).join('');
+
+  return `
+  <div class="strategy-card" data-id="${s.id}">
+    <div class="header" onclick="this.parentElement.classList.toggle('expanded')">
+      <div class="header-content">
+        <div class="card-line-1">
+          <span class="num">${s.num}</span>
+          <span class="name-text">${s.name}</span>
+          <span class="en">${s.en}</span>
+        </div>
+        <div class="desc">${s.desc}</div>
+        <div class="card-tags">
+          <span class="tag-group"><span class="tag-label">工具</span>${toolTags}</span>
+          <span class="tag-group"><span class="tag-label">观点</span>${viewTags}</span>
+          <span class="tag-group"><span class="tag-label">周期</span>${horizonTags}</span>
+        </div>
+      </div>
+      <div class="card-meta">
+        <span class="tag cat-${s.cat}">${CAT_NAMES[s.cat]}</span>
+        <div class="metric complex" title="复杂度 ${s.complexity}/5">复杂度<span class="stars">${stars(s.complexity)}</span></div>
+        <div class="metric risk-${s.risk}" title="风险 ${RISK_NAMES[s.risk]} (${s.risk}/5)">风险<span class="stars">${stars(s.risk)}</span></div>
+      </div>
+    </div>
+    <div class="body">
+      <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:14px;">
+        <span class="muted" style="font-size:11px;">品种:</span>${instTags}
+      </div>
+
+      <h4>适用场景</h4>
+      <div>${s.when}</div>
+
+      <h4>运作机制</h4>
+      <div>${s.how}</div>
+
+      <h4>关键参数</h4>
+      <table class="params-table">${params}</table>
+
+      <div class="row">
+        <div>
+          <h4>好处</h4>
+          <ul>${pros}</ul>
+        </div>
+        <div>
+          <h4>代价 / 风险</h4>
+          <ul>${cons}</ul>
+        </div>
+      </div>
+
+      <h4>示例</h4>
+      <div class="example-box">${s.example}</div>
+    </div>
+  </div>`;
+}
+
+function renderLibrary() {
+  const list = STRATEGIES.filter(s => {
+    if (filterState.cat.length && !filterState.cat.includes(s.cat)) return false;
+    if (filterState.inst.length && !s.inst.some(i => filterState.inst.includes(i))) return false;
+    if (filterState.tool.length && !s.tool.some(t => filterState.tool.includes(t))) return false;
+    if (filterState.view.length && !s.view.some(v => filterState.view.includes(v))) return false;
+    if (filterState.horizon.length && !s.horizon.some(h => filterState.horizon.includes(h))) return false;
+    if (filterState.complexity.length && !filterState.complexity.includes(String(s.complexity))) return false;
+    if (filterState.risk.length && !filterState.risk.includes(String(s.risk))) return false;
+    if (filterState.search) {
+      const blob = (s.name + ' ' + s.en + ' ' + s.desc + ' ' + s.when).toLowerCase();
+      if (!blob.includes(filterState.search)) return false;
+    }
+    return true;
+  });
+  const el = document.getElementById('strategy-list');
+  const countEl = document.getElementById('filter-count');
+  if (countEl) countEl.textContent = `显示 ${list.length} / ${STRATEGIES.length} 条策略`;
+  if (list.length === 0) {
+    el.innerHTML = '<div class="no-results">没有匹配的策略。建议减少筛选条件，或点击"清空筛选"重置。</div>';
+  } else {
+    el.innerHTML = list.map(renderStrategyCard).join('');
+  }
+}
+renderLibrary();
+
+// stats
+document.getElementById('stat-total').textContent = STRATEGIES.length;
+
+// =================== AI QUERY ===================
+document.querySelectorAll('.example-prompt').forEach(p => {
+  p.addEventListener('click', () => {
+    document.getElementById('ai-input').value = p.dataset.prompt;
+  });
+});
+
+document.getElementById('ai-clear').addEventListener('click', () => {
+  document.getElementById('ai-input').value = '';
+  document.getElementById('ai-result').classList.remove('show');
+});
+
+document.getElementById('ai-submit').addEventListener('click', async () => {
+  const input = document.getElementById('ai-input').value.trim();
+  if (!input) {
+    alert('请先描述你的交易情境。');
+    return;
+  }
+  const resultEl = document.getElementById('ai-result');
+  resultEl.classList.add('show');
+  resultEl.innerHTML = '<div class="loading"><div class="spinner"></div>AI 正在分析你的情境，从 78 条策略中挑选最匹配的组合……</div>';
+
+  // Compact strategy summary for the AI
+  const strategiesCompact = STRATEGIES.map(s => ({
+    id: s.id,
+    name: s.name,
+    cat: CAT_NAMES[s.cat],
+    inst: s.inst.map(i => INST_NAMES[i]),
+    tool: s.tool.map(t => TOOL_NAMES[t]),
+    view: s.view.map(v => VIEW_NAMES[v]),
+    horizon: s.horizon.map(h => HORIZON_NAMES[h]),
+    complexity: s.complexity,
+    desc: s.desc,
+    when: s.when
+  }));
+
+  const prompt = `你是一名严谨的交易策略顾问。根据用户描述的具体情境，从下面提供的策略库中挑选 2-4 条最匹配的策略，给出可执行的组合建议。
+
+【用户情境】
+${input}
+
+【输出要求】
+用 markdown 格式输出，包含以下章节：
+
+### 情境分析
+用 3-5 句话归纳用户的核心需求、约束和心理顾虑。
+
+### 推荐策略组合
+对每条推荐策略，按以下结构输出（用 #### 作为策略标题）：
+
+#### N. 策略名（来自策略库）
+- **为什么推荐**：基于用户具体情况的针对性理由（不要照抄库里的"适用场景"）
+- **建议参数**：具体到金额/价格/时间，结合用户提到的资金规模和价格
+- **好处**：1-3 条
+- **代价 / 风险**：1-3 条
+- **执行建议**：怎么和其他推荐策略配合
+
+### 整体注意事项
+2-3 条最关键的提醒（包括标的研究、心理纪律、风险预算）。
+
+### 免责声明
+一句话提醒这只是策略组合科普，不构成投资建议。
+
+【约束】
+- 只能从策略库中挑选，不要凭空创造策略名
+- 推荐 2-4 条，宁可少不可多，避免堆砌
+- 参数要具体、可执行
+- 中文输出，专业但通俗
+- 不要做投资建议或预测涨跌`;
+
+  try {
+    if (!window.cowork || !window.cowork.askClaude) {
+      throw new Error('AI 接口不可用');
+    }
+    const response = await window.cowork.askClaude(prompt, [{ strategies: strategiesCompact }]);
+    const text = typeof response === 'string' ? response : (response.text || response.content || JSON.stringify(response));
+    resultEl.innerHTML = renderMarkdown(text);
+  } catch (err) {
+    resultEl.innerHTML = `<div style="color: var(--danger);"><strong>AI 推荐暂时不可用。</strong><br>${err.message || err}<br><br>请稍后刷新页面重试，或前往「策略库」按维度自行筛选。</div>`;
+  }
+});
+
+// minimal markdown renderer
+function renderMarkdown(md) {
+  const escape = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  let out = escape(md);
+  out = out.replace(/^####\s+(.+)$/gm, '<h4 style="color:var(--accent);margin-top:18px;">$1</h4>');
+  out = out.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>');
+  out = out.replace(/^##\s+(.+)$/gm, '<h2 style="border:none;font-size:20px;">$1</h2>');
+  out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  out = out.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  out = out.replace(/^[-*]\s+(.+)$/gm, '<li>$1</li>');
+  out = out.replace(/(<li>.*?<\/li>\n?)+/gs, m => '<ul style="margin:6px 0; padding-left:22px;">' + m + '</ul>');
+  out = out.replace(/\n\n+/g, '</p><p>');
+  out = '<p>' + out + '</p>';
+  out = out.replace(/<p>(<h\d|<ul)/g, '$1').replace(/(<\/h\d>|<\/ul>)<\/p>/g, '$1');
+  return out;
+}
+</script>
+
+</body>
+</html>
