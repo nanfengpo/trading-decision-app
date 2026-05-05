@@ -110,10 +110,17 @@ class AnalysisRequest:
     llm_provider: str = "openai"
     deep_think_llm: str = "gpt-4o-mini"
     quick_think_llm: str = "gpt-4o-mini"
-    research_depth: int = 1            # max debate rounds for both stages
+    research_depth: int = 1
     backend_url: Optional[str] = None
     output_language: str = "Chinese"
-    mode: str = "auto"                  # "auto" | "live" | "demo"
+    mode: str = "auto"
+    # Multi-tenant: per-request API key overrides (passed by the frontend
+    # from the signed-in user's profile). Filtered through key_injector's
+    # allowlist; never persisted with the decision.
+    api_keys: Dict[str, str] = field(default_factory=dict)
+    # Stable user id (Supabase auth.uid()) — used by the DB-backed usage
+    # logger to attribute calls. None for anonymous (single-tenant mode).
+    user_id: Optional[str] = None
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "AnalysisRequest":
@@ -297,6 +304,8 @@ class AgentRunner:
         from tradingagents.graph.trading_graph import TradingAgentsGraph
         from tradingagents.default_config import DEFAULT_CONFIG
         from cli.stats_handler import StatsCallbackHandler
+        import key_injector
+        from usage_logger import GranularStatsHandler
 
         cfg = DEFAULT_CONFIG.copy()
         cfg["llm_provider"] = self.req.llm_provider.lower()
@@ -308,31 +317,36 @@ class AgentRunner:
         if self.req.backend_url:
             cfg["backend_url"] = self.req.backend_url
 
-        # Auto-route data vendors to premium sources when their keys are set.
-        # premium_bridge.register() inside TradingAgents has already injected
-        # those vendors into VENDOR_METHODS at import time; here we just
-        # tell route_to_vendor which one to PREFER per category.
-        cfg["data_vendors"] = _premium_vendor_routing(cfg.get("data_vendors", {}))
+        # ── KEY INJECTION (multi-tenant) ─────────────────────────────
+        # Per-request keys live ONLY for the duration of the construction
+        # window. The `with` block holds a process-wide lock; once the
+        # graph + LLM clients are constructed they've captured the keys
+        # in their own state and we can safely release.
+        with key_injector.inject(self.req.api_keys):
+            # Auto-route data vendors to premium sources when keys are set.
+            cfg["data_vendors"] = _premium_vendor_routing(cfg.get("data_vendors", {}))
 
-        # Token & call tracking — TradingAgents already ships a callback handler
-        # in cli/stats_handler.py. We bind it to both the LLMs and the graph
-        # invocation so it captures everything.
-        stats_handler = StatsCallbackHandler()
+            # Aggregate stats for the legacy `usage` event
+            stats_handler = StatsCallbackHandler()
+            # Granular per-call telemetry — emits SSE events as calls happen
+            granular = GranularStatsHandler(emit=self.emit, req=self.req)
 
-        graph = TradingAgentsGraph(
-            selected_analysts=self.req.analysts,
-            debug=False,
-            config=cfg,
-            callbacks=[stats_handler],
-        )
-        self._stats_handler = stats_handler
+            graph = TradingAgentsGraph(
+                selected_analysts=self.req.analysts,
+                debug=False,
+                config=cfg,
+                callbacks=[stats_handler, granular],
+            )
+            self._stats_handler = stats_handler
+            self._granular_handler = granular
+
+            init_state = graph.propagator.create_initial_state(self.req.ticker, self.req.trade_date)
+            args = graph.propagator.get_graph_args(callbacks=[stats_handler, granular])
+        # ─── lock released; from here on the graph runs without env access ───
 
         # mark first analyst in_progress
         if self.req.analysts:
             self._status(self.req.analysts[0], "in_progress")
-
-        init_state = graph.propagator.create_initial_state(self.req.ticker, self.req.trade_date)
-        args = graph.propagator.get_graph_args(callbacks=[stats_handler])
 
         seen_msg_ids = set()
         completed_analysts: set = set()

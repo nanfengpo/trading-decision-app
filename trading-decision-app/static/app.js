@@ -666,6 +666,53 @@ class DecisionWindow {
 
   // ---- start / stop / events ----------------------------------------
 
+  /**
+   * Read the signed-in user's API keys (LLM + data) from their Supabase
+   * profile and merge into a single dict. Returns {} when not signed in
+   * (single-tenant fallback uses backend .env keys).
+   */
+  /**
+   * Bulk-insert the run's usage_events to the user's Supabase
+   * `usage_events` table. RLS ensures each row attaches to auth.uid().
+   * No-op when not signed in (data stays in localStorage via History).
+   */
+  async _flushUsageEvents() {
+    const events = this.runState.usage_events || [];
+    if (!events.length) return;
+    if (!window.Auth?.isSignedIn() || !window.Auth.rawClient) return;
+    const u = window.Auth.user();
+    const rows = events.map(e => ({
+      user_id: u.id,
+      decision_id: this.id,
+      ts: e.ts,
+      kind: e.kind,
+      provider: e.provider || null,
+      model: e.model || null,
+      tokens_in: e.tokens_in || 0,
+      tokens_out: e.tokens_out || 0,
+      tool_name: e.tool_name || null,
+    }));
+    const { error } = await window.Auth.rawClient().from("usage_events").insert(rows);
+    if (error) console.warn("usage_events insert error:", error.message);
+  }
+
+  async _readUserKeys() {
+    if (!window.Auth || !window.Auth.isSignedIn() || !window.Auth.rawClient) return {};
+    try {
+      const u = window.Auth.user();
+      const { data, error } = await window.Auth.rawClient()
+        .from("profiles")
+        .select("llm_api_keys, custom_api_keys")
+        .eq("id", u.id)
+        .single();
+      if (error) return {};
+      return Object.assign({}, data?.llm_api_keys || {}, data?.custom_api_keys || {});
+    } catch (e) {
+      console.warn("readUserKeys", e);
+      return {};
+    }
+  }
+
   async start() {
     this.status = "running";
     this.q(".cockpit-ticker").textContent = `${this.params.ticker} · ${this.params.trade_date}`;
@@ -678,11 +725,22 @@ class DecisionWindow {
       const tok = window.Auth?.accessToken?.();
       if (tok) headers["Authorization"] = `Bearer ${tok}`;
 
+      // Multi-tenant: pull this user's saved API keys from their Supabase
+      // profile and attach them to the request body. The backend uses
+      // KeyInjector to set them in env for the duration of graph
+      // construction, then restores. Single-tenant deployments (no
+      // signed-in user) skip this and the backend uses .env keys.
+      const userKeys = await this._readUserKeys();
+
       const apiBase = (window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL) || "";
       const r = await fetch(`${apiBase}/api/analyze`, {
         method: "POST",
         headers,
-        body: JSON.stringify(this.params),
+        body: JSON.stringify({
+          ...this.params,
+          api_keys: userKeys,
+          user_id: window.Auth?.user?.()?.id || null,
+        }),
       });
       if (!r.ok) throw new Error(await r.text());
       const { session_id } = await r.json();
@@ -738,12 +796,17 @@ class DecisionWindow {
       case "final_decision": this.renderFinal(evt); break;
       case "translation": this.applyTranslationPatch(evt); break;
       case "usage": this.runState.usage = evt.stats; break;
+      case "usage_event":
+        (this.runState.usage_events ||= []).push(evt);
+        break;
       case "complete":
         this.setStatusText("分析完成 ✔");
         this.markStatus("done");
         if (this.es) { this.es.close(); this.es = null; }
         // auto-save to history (Supabase if signed in, else localStorage)
         saveHistorySafely(this);
+        // Persist granular usage_events to Supabase (RLS keeps per-user)
+        this._flushUsageEvents().catch(e => console.warn("usage flush", e));
         break;
       case "error":
         this.setStatusText(`错误：${evt.message}`);
