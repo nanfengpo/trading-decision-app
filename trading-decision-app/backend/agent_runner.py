@@ -29,29 +29,44 @@ from translator import Translator
 logger = logging.getLogger(__name__)
 
 
-def _patch_tradingagents_for_extra_providers() -> None:
-    """Register Kimi (Moonshot) into TradingAgents' OpenAI-compatible client.
+# NOTE: Kimi (Moonshot) is now natively supported in TradingAgents — see
+# patches/0001-add-kimi-provider.patch (registered in tradingagents/
+# llm_clients/factory.py and openai_client.py). The previous runtime
+# monkey-patch was removed in v6.
 
-    TradingAgents already supports openai/deepseek/qwen/glm; we just append
-    Kimi's base URL and key env so users can pick provider="kimi" without
-    forking TradingAgents.
+
+def _premium_vendor_routing(default_vendors: Dict[str, str]) -> Dict[str, str]:
+    """Build a TradingAgents data_vendors mapping that prefers our premium
+    sources whenever their API keys are configured, falling back to the
+    framework's defaults (yfinance / alpha_vantage) otherwise.
+
+    The mapping uses TradingAgents' own ``"vendor1,vendor2"`` syntax so
+    ``route_to_vendor()`` tries the premium one first and falls through
+    to the next when it raises (e.g. when the key is invalid or the API
+    is rate-limited).
     """
+    out = dict(default_vendors)
     try:
-        from tradingagents.llm_clients import factory, openai_client  # type: ignore
+        from dataflows.registry import Registry  # type: ignore
     except Exception:
-        return
-    try:
-        if "kimi" not in factory._OPENAI_COMPATIBLE:
-            factory._OPENAI_COMPATIBLE = tuple(list(factory._OPENAI_COMPATIBLE) + ["kimi"])
-        if "kimi" not in openai_client._PROVIDER_CONFIG:
-            openai_client._PROVIDER_CONFIG["kimi"] = (
-                "https://api.moonshot.cn/v1", "MOONSHOT_API_KEY",
-            )
-    except Exception as e:
-        logger.warning("could not patch TradingAgents for Kimi: %s", e)
+        return out  # premium dataflows not loadable — keep defaults
 
-
-_patch_tradingagents_for_extra_providers()
+    # Map TradingAgents category → premium dataflows category
+    cat_map = {
+        "news_data":          "news",
+        "core_stock_apis":    "market",
+        "technical_indicators":"market",
+        "fundamental_data":   "fundamentals",
+    }
+    for ta_cat, premium_cat in cat_map.items():
+        for vmeta in Registry.list_for_category(premium_cat):
+            if vmeta.api_key_env and os.environ.get(vmeta.api_key_env):
+                # Put the premium vendor first in the fallback chain
+                existing = out.get(ta_cat, "")
+                if vmeta.name not in existing:
+                    out[ta_cat] = f"{vmeta.name},{existing}" if existing else vmeta.name
+                break  # one premium vendor per category is enough
+    return out
 
 # Map of analyst keys -> display names (matches CLI MessageBuffer).
 ANALYST_DISPLAY = {
@@ -266,6 +281,12 @@ class AgentRunner:
         cfg["output_language"] = self.req.output_language
         if self.req.backend_url:
             cfg["backend_url"] = self.req.backend_url
+
+        # Auto-route data vendors to premium sources when their keys are set.
+        # premium_bridge.register() inside TradingAgents has already injected
+        # those vendors into VENDOR_METHODS at import time; here we just
+        # tell route_to_vendor which one to PREFER per category.
+        cfg["data_vendors"] = _premium_vendor_routing(cfg.get("data_vendors", {}))
 
         graph = TradingAgentsGraph(
             selected_analysts=self.req.analysts,

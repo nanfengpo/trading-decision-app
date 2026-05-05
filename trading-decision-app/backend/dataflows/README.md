@@ -83,28 +83,33 @@ from . import yourvendor   # noqa: F401
 | Nasdaq Data Link | — | macro | TODO |
 | JQData / RQData | — | CN market+fundamentals | TODO |
 
-## Wiring into TradingAgents
+## Wiring into TradingAgents (v6+ — already done)
 
-The cleanest place is `agents/utils/agent_utils.py` where the analyst tools
-are defined. Replace each tool's body to first try
-`dataflows.get_source(category).fetch_*()` and fall back to the existing
-yfinance call when the source returns None:
+Since v6 the wiring is done **automatically** via the patch series in
+`patches/0002-premium-dataflows-bridge.patch`:
+
+1. `tradingagents/dataflows/premium_bridge.py` — small shim that imports
+   our `dataflows` package (when on PYTHONPATH) and registers each
+   configured vendor into TradingAgents' `VENDOR_METHODS`.
+2. `tradingagents/dataflows/interface.py` — calls
+   `premium_bridge.register(VENDOR_METHODS)` at module load time.
+
+Result: when the host application sets e.g. `FINNHUB_API_KEY` in env,
+`finnhub_pro` becomes a first-class vendor that the analysts'
+`route_to_vendor("get_news", …)` will pick up.
+
+`agent_runner._run_live` further sets `cfg["data_vendors"]` to put the
+premium vendor first in TradingAgents' fallback chain whenever its key
+is configured — so users don't even have to know about the
+`data_vendors` config.
+
+### Verify it's wired correctly
 
 ```python
-# tradingagents/agents/utils/agent_utils.py
-from dataflows import get_source
-
-@tool
-def get_news(query, start_date, end_date):
-    src = get_source("news")
-    if src:
-        out = src.fetch_news_summary(query, lookback_days=7)
-        if out: return out
-    return _yfinance_news_fallback(query, start_date, end_date)
+from tradingagents.dataflows.interface import VENDOR_METHODS
+print(list(VENDOR_METHODS["get_news"].keys()))
+# → ['alpha_vantage', 'yfinance', 'finnhub_pro']   ← finnhub_pro added by bridge
 ```
-
-That's the **minimum diff** strategy: pre-pend the premium path; keep the
-free path as the fallback.
 
 ## Token-saving tip
 

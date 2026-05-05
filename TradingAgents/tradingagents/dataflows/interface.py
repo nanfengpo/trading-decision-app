@@ -109,6 +109,17 @@ VENDOR_METHODS = {
     },
 }
 
+# ---- premium-vendor extension hook --------------------------------------
+# When a sibling `dataflows` package is available (provided by a host
+# application), register its sources as additional vendors. No-op when not
+# importable, so TradingAgents stays runnable stand-alone.
+try:
+    from . import premium_bridge as _premium_bridge
+    _premium_bridge.register(VENDOR_METHODS)
+except Exception:
+    pass
+
+
 def get_category_for_method(method: str) -> str:
     """Get the category that contains the specified method."""
     for category, info in TOOLS_CATEGORIES.items():
