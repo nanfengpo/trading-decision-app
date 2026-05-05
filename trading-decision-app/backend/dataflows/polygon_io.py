@@ -21,6 +21,7 @@ from typing import Optional
 
 import requests
 
+from .cache import cached
 from .registry import BaseDataSource, Category, VendorMeta, register
 from .summarize import summarize_news, summarize_quotes
 
@@ -46,6 +47,7 @@ class PolygonIO(BaseDataSource):
             logger.warning("polygon %s failed: %s", path, e)
             return None
 
+    @cached(ttl=300)
     def fetch_quote_summary(self, ticker: str) -> Optional[str]:
         end = datetime.utcnow().date()
         start = end - timedelta(days=365)
@@ -58,6 +60,7 @@ class PolygonIO(BaseDataSource):
         closes = [r["c"] for r in data["results"]]
         return summarize_quotes({"closes": closes}, ticker)
 
+    @cached(ttl=600)
     def fetch_news_summary(self, ticker: str, lookback_days: int = 7) -> Optional[str]:
         # Polygon news has decent coverage with sentiment scores.
         published_gte = (datetime.utcnow() - timedelta(days=lookback_days)).isoformat() + "Z"

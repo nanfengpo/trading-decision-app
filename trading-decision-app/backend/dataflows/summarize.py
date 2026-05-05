@@ -187,6 +187,201 @@ def summarize_fundamentals(metrics: Mapping, ticker: str) -> str:
 
 # ----- social --------------------------------------------------------------
 
+# ----- financial statements (3-statement detail) ------------------------
+
+def _fmt_money(v) -> str:
+    """Format a possibly-large number into B / M / K with sign."""
+    if v is None or not isinstance(v, (int, float)):
+        return "—"
+    sign = "-" if v < 0 else ""
+    abs_v = abs(v)
+    if abs_v >= 1e9:  return f"{sign}${abs_v / 1e9:.2f}B"
+    if abs_v >= 1e6:  return f"{sign}${abs_v / 1e6:.2f}M"
+    if abs_v >= 1e3:  return f"{sign}${abs_v / 1e3:.2f}K"
+    return f"{sign}${abs_v:.0f}"
+
+
+def summarize_balance_sheet(report: Mapping, ticker: str) -> str:
+    """``report`` is a dict of canonical labels → numeric values.
+    Caller (vendor) is responsible for normalising vendor-specific names.
+    """
+    if not report:
+        return f"_(no balance sheet for {ticker})_"
+    pick = lambda *keys: next((report[k] for k in keys if report.get(k) is not None), None)
+    total_assets       = pick("totalAssets", "Assets", "ta")
+    total_liabilities  = pick("totalLiabilities", "Liabilities", "tl")
+    total_equity       = pick("totalEquity", "totalStockholdersEquity", "Equity")
+    cash               = pick("cashAndCashEquivalents", "cash", "Cash")
+    long_term_debt     = pick("longTermDebt", "longTermBorrowings")
+    short_term_debt    = pick("shortTermDebt", "shortTermBorrowings")
+    period             = report.get("period") or report.get("date") or report.get("endDate") or "latest"
+    lines = [
+        f"## Balance Sheet — {ticker} ({period})",
+        f"- 总资产: **{_fmt_money(total_assets)}**  ·  总负债: **{_fmt_money(total_liabilities)}**  ·  净资产: **{_fmt_money(total_equity)}**",
+        f"- 现金及等价物: {_fmt_money(cash)}",
+        f"- 长期债务: {_fmt_money(long_term_debt)}  ·  短期债务: {_fmt_money(short_term_debt)}",
+    ]
+    if isinstance(total_liabilities, (int, float)) and isinstance(total_equity, (int, float)) and total_equity:
+        lines.append(f"- D/E (近似): {total_liabilities / total_equity:.2f}")
+    return "\n".join(lines)
+
+
+def summarize_income_statement(report: Mapping, ticker: str) -> str:
+    if not report:
+        return f"_(no income statement for {ticker})_"
+    pick = lambda *keys: next((report[k] for k in keys if report.get(k) is not None), None)
+    revenue   = pick("revenue", "totalRevenue", "Revenue", "Sales")
+    cogs      = pick("costOfRevenue", "cogs", "COGS")
+    gross     = pick("grossProfit", "GrossProfit") or (
+        revenue - cogs if isinstance(revenue, (int, float)) and isinstance(cogs, (int, float)) else None)
+    op_income = pick("operatingIncome", "OperatingIncome", "ebit")
+    net_inc   = pick("netIncome", "NetIncome", "Profit")
+    eps       = pick("eps", "epsBasic", "epsDiluted", "EPS")
+    period    = report.get("period") or report.get("date") or report.get("endDate") or "latest"
+
+    gm = (gross / revenue * 100) if isinstance(gross, (int, float)) and isinstance(revenue, (int, float)) and revenue else None
+    om = (op_income / revenue * 100) if isinstance(op_income, (int, float)) and isinstance(revenue, (int, float)) and revenue else None
+    nm = (net_inc / revenue * 100) if isinstance(net_inc, (int, float)) and isinstance(revenue, (int, float)) and revenue else None
+
+    lines = [
+        f"## Income Statement — {ticker} ({period})",
+        f"- 营收: **{_fmt_money(revenue)}**  ·  毛利: {_fmt_money(gross)}  ·  营业利润: {_fmt_money(op_income)}  ·  净利润: **{_fmt_money(net_inc)}**",
+    ]
+    margin_parts = []
+    if gm is not None: margin_parts.append(f"毛利率 {gm:.1f}%")
+    if om is not None: margin_parts.append(f"营业利润率 {om:.1f}%")
+    if nm is not None: margin_parts.append(f"净利率 {nm:.1f}%")
+    if margin_parts: lines.append("- " + "  ·  ".join(margin_parts))
+    if eps is not None and isinstance(eps, (int, float)):
+        lines.append(f"- EPS: ${eps:.2f}")
+    return "\n".join(lines)
+
+
+def summarize_cashflow(report: Mapping, ticker: str) -> str:
+    if not report:
+        return f"_(no cashflow for {ticker})_"
+    pick = lambda *keys: next((report[k] for k in keys if report.get(k) is not None), None)
+    cfo  = pick("operatingCashFlow", "cashFromOperatingActivities", "CFO")
+    cfi  = pick("investingCashFlow", "cashFromInvestingActivities", "CFI")
+    cff  = pick("financingCashFlow", "cashFromFinancingActivities", "CFF")
+    capex= pick("capitalExpenditure", "capex", "CapEx")
+    fcf  = pick("freeCashFlow", "FCF") or (
+        cfo + capex if isinstance(cfo, (int, float)) and isinstance(capex, (int, float)) else None)
+    period = report.get("period") or report.get("date") or report.get("endDate") or "latest"
+
+    lines = [
+        f"## Cash Flow — {ticker} ({period})",
+        f"- 经营活动: **{_fmt_money(cfo)}**  ·  投资: {_fmt_money(cfi)}  ·  筹资: {_fmt_money(cff)}",
+        f"- 资本开支: {_fmt_money(capex)}  ·  自由现金流: **{_fmt_money(fcf)}**",
+    ]
+    return "\n".join(lines)
+
+
+# ----- detailed indicators (Phase A.2) ------------------------------------
+
+def summarize_indicators_detailed(values: Mapping, ticker: str) -> str:
+    """``values`` is a flat dict of indicator name → latest value.
+
+    Recognised keys (any subset works):
+      rsi, macd, macd_signal, macd_hist,
+      bb_upper, bb_middle, bb_lower, bb_pct,
+      atr, adx, plus_di, minus_di,
+      sma_20, sma_50, sma_200, ema_20, vwma_20
+    """
+    if not values:
+        return f"_(no indicator data for {ticker})_"
+    fmt = lambda v: f"{v:.2f}" if isinstance(v, (int, float)) else "—"
+    lines = [f"## Technical Indicators — {ticker}", ""]
+
+    # RSI
+    rsi = values.get("rsi")
+    if rsi is not None:
+        zone = "超买 ⚠️" if rsi > 70 else ("超卖 ⚠️" if rsi < 30 else "中性")
+        lines.append(f"- **RSI(14)**: {fmt(rsi)}  ({zone})")
+    # MACD
+    macd, sig, hist = values.get("macd"), values.get("macd_signal"), values.get("macd_hist")
+    if macd is not None:
+        cross = ""
+        if isinstance(hist, (int, float)):
+            cross = "（金叉/向上）" if hist > 0 else "（死叉/向下）"
+        lines.append(f"- **MACD**: {fmt(macd)}  ·  signal {fmt(sig)}  ·  hist {fmt(hist)} {cross}")
+    # Bollinger
+    bbu, bbm, bbl, bbp = values.get("bb_upper"), values.get("bb_middle"), values.get("bb_lower"), values.get("bb_pct")
+    if bbu is not None or bbm is not None:
+        line = f"- **Bollinger(20,2)**: lower {fmt(bbl)}  ·  mid {fmt(bbm)}  ·  upper {fmt(bbu)}"
+        if isinstance(bbp, (int, float)):
+            zone = "贴近上轨 ⚠️" if bbp > 0.85 else ("贴近下轨 ⚠️" if bbp < 0.15 else "")
+            line += f"  ·  %B {bbp:.2f} {zone}"
+        lines.append(line)
+    # ATR / ADX
+    atr = values.get("atr")
+    if atr is not None:
+        lines.append(f"- **ATR(14)**: {fmt(atr)}  (波动绝对值)")
+    adx = values.get("adx")
+    if adx is not None:
+        strength = "强趋势" if adx > 25 else ("弱/无趋势" if adx < 20 else "盘整")
+        lines.append(f"- **ADX(14)**: {fmt(adx)}  +DI {fmt(values.get('plus_di'))}  −DI {fmt(values.get('minus_di'))}  ({strength})")
+    # MAs
+    ma_parts = []
+    for k, lbl in [("sma_20","SMA20"), ("sma_50","SMA50"), ("sma_200","SMA200"), ("ema_20","EMA20"), ("vwma_20","VWMA20")]:
+        if values.get(k) is not None:
+            ma_parts.append(f"{lbl} {fmt(values[k])}")
+    if ma_parts:
+        lines.append(f"- 均线: {'  ·  '.join(ma_parts)}")
+
+    return "\n".join(lines)
+
+
+# ----- insider transactions (Phase A.3) -----------------------------------
+
+def summarize_insider(transactions: Iterable[Mapping], ticker: str, lookback_days: int = 90) -> str:
+    """transactions = list of dicts; recognised keys:
+       name / position / transactionDate / transactionType /
+       share / change (signed) / transactionPrice
+    """
+    txs = list(transactions or [])
+    if not txs:
+        return f"_(no insider transactions for {ticker} in last {lookback_days}d)_"
+
+    buys = sells = 0
+    buy_value = sell_value = 0.0
+    sample = []
+    for t in txs[:100]:
+        chg = t.get("change") or t.get("share") or 0
+        try:
+            chg = float(chg)
+        except (TypeError, ValueError):
+            chg = 0
+        price = t.get("transactionPrice") or t.get("price") or 0
+        try:
+            price = float(price)
+        except (TypeError, ValueError):
+            price = 0
+        if chg > 0:
+            buys += 1
+            buy_value += chg * price
+        elif chg < 0:
+            sells += 1
+            sell_value += abs(chg) * price
+        if len(sample) < 5:
+            who = t.get("name") or t.get("filerName") or "—"
+            pos = t.get("position") or t.get("officerTitle") or ""
+            date = t.get("transactionDate") or t.get("date") or ""
+            sample.append(f"{date}  {who} ({pos}): {'+' if chg>0 else ''}{int(chg)} 股 @ {_fmt_money(price)}")
+
+    net = buy_value - sell_value
+    bias = "🟢 净买入" if net > 0 else ("🔴 净卖出" if net < 0 else "⚪ 中性")
+    lines = [
+        f"## Insider Transactions — {ticker} (last {lookback_days}d)",
+        f"- 买入笔数: **{buys}**  ·  卖出笔数: **{sells}**  ·  方向: **{bias}**  (净额 {_fmt_money(net)})",
+    ]
+    if sample:
+        lines.append("- 近期典型:")
+        for s in sample:
+            lines.append(f"  · {s}")
+    return "\n".join(lines)
+
+
 def summarize_social(posts: Iterable[Mapping], ticker: str, lookback_days: int = 7) -> str:
     """Reduce a stream of social posts to topic clusters + tone."""
     posts = list(posts or [])

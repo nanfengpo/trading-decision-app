@@ -63,6 +63,20 @@ class BaseDataSource:
     def fetch_fundamentals_summary(self, ticker: str) -> Optional[str]:
         return None
 
+    # ── three-statement detail (Phase A.1) — return None to fall back ──
+    def fetch_balance_sheet_summary(self, ticker: str) -> Optional[str]:
+        return None
+
+    def fetch_income_statement_summary(self, ticker: str) -> Optional[str]:
+        return None
+
+    def fetch_cashflow_summary(self, ticker: str) -> Optional[str]:
+        return None
+
+    # ── insider transactions (Phase A.3) ──
+    def fetch_insider_summary(self, ticker: str, lookback_days: int = 90) -> Optional[str]:
+        return None
+
     def fetch_social_summary(self, ticker: str, lookback_days: int = 7) -> Optional[str]:
         return None
 

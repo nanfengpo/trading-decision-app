@@ -737,6 +737,7 @@ class DecisionWindow {
       case "risk_debate": this.renderRiskDebate(evt); break;
       case "final_decision": this.renderFinal(evt); break;
       case "translation": this.applyTranslationPatch(evt); break;
+      case "usage": this.runState.usage = evt.stats; break;
       case "complete":
         this.setStatusText("分析完成 ✔");
         this.markStatus("done");

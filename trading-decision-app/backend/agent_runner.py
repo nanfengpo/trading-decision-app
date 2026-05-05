@@ -138,6 +138,8 @@ class AgentRunner:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self.translator: Optional[Translator] = None
         self._msg_id_counter = itertools.count(1)
+        self._stats_handler = None         # set in _run_live
+        self._run_started_at = time.time()
 
     # public ---------------------------------------------------------------
 
@@ -180,6 +182,9 @@ class AgentRunner:
             logger.exception("agent runner failed")
             self.emit({"type": "error", "message": str(e)})
         else:
+            # Emit usage telemetry just before complete so the front-end
+            # can store it with the decision (frontend listens for `usage`).
+            self.emit({"type": "usage", "stats": self._collect_usage()})
             self.emit({"type": "complete"})
         finally:
             if self.translator:
@@ -216,6 +221,26 @@ class AgentRunner:
                 text = dec.get(key)
                 if isinstance(text, str) and text.strip():
                     self._schedule_patch(evt["msg_id"], f"decision.{key}", text)
+
+    def _collect_usage(self) -> Dict[str, Any]:
+        """Snapshot LLM/tool usage from StatsCallbackHandler + dataflow cache."""
+        out: Dict[str, Any] = {
+            "elapsed_sec": round(time.time() - self._run_started_at, 1),
+            "provider": self.req.llm_provider,
+            "deep_model": self.req.deep_think_llm,
+            "quick_model": self.req.quick_think_llm,
+        }
+        if self._stats_handler is not None:
+            try:
+                out.update(self._stats_handler.get_stats())
+            except Exception as e:
+                logger.warning("collect stats failed: %s", e)
+        try:
+            from dataflows.cache import cache_stats as _cstats
+            out["dataflow_cache"] = _cstats()
+        except Exception:
+            pass
+        return out
 
     def _schedule_patch(self, msg_id: str, target: str, text: str) -> None:
         if not self.translator:
@@ -271,6 +296,7 @@ class AgentRunner:
         """Run the real TradingAgentsGraph in this thread, emitting events."""
         from tradingagents.graph.trading_graph import TradingAgentsGraph
         from tradingagents.default_config import DEFAULT_CONFIG
+        from cli.stats_handler import StatsCallbackHandler
 
         cfg = DEFAULT_CONFIG.copy()
         cfg["llm_provider"] = self.req.llm_provider.lower()
@@ -288,18 +314,25 @@ class AgentRunner:
         # tell route_to_vendor which one to PREFER per category.
         cfg["data_vendors"] = _premium_vendor_routing(cfg.get("data_vendors", {}))
 
+        # Token & call tracking — TradingAgents already ships a callback handler
+        # in cli/stats_handler.py. We bind it to both the LLMs and the graph
+        # invocation so it captures everything.
+        stats_handler = StatsCallbackHandler()
+
         graph = TradingAgentsGraph(
             selected_analysts=self.req.analysts,
             debug=False,
             config=cfg,
+            callbacks=[stats_handler],
         )
+        self._stats_handler = stats_handler
 
         # mark first analyst in_progress
         if self.req.analysts:
             self._status(self.req.analysts[0], "in_progress")
 
         init_state = graph.propagator.create_initial_state(self.req.ticker, self.req.trade_date)
-        args = graph.propagator.get_graph_args()
+        args = graph.propagator.get_graph_args(callbacks=[stats_handler])
 
         seen_msg_ids = set()
         completed_analysts: set = set()

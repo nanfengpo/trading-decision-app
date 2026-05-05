@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+from .cache import cached
 from .registry import BaseDataSource, Category, VendorMeta, register
 from .summarize import summarize_quotes, summarize_fundamentals
 
@@ -36,6 +37,7 @@ class AkShareCN(BaseDataSource):
             logger.info("akshare not installed — pip install akshare")
             return None
 
+    @cached(ttl=300)
     def fetch_quote_summary(self, ticker: str) -> Optional[str]:
         ak = self._ak()
         if ak is None:
@@ -52,6 +54,7 @@ class AkShareCN(BaseDataSource):
             logger.warning("akshare quote %s failed: %s", ticker, e)
             return None
 
+    @cached(ttl=3600)
     def fetch_fundamentals_summary(self, ticker: str) -> Optional[str]:
         ak = self._ak()
         if ak is None:
