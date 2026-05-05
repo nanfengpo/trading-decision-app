@@ -6,8 +6,10 @@ from langgraph.prebuilt import ToolNode
 
 from tradingagents.agents import *
 from tradingagents.agents.utils.agent_states import AgentState
+from tradingagents.dataflows.config import get_config
 
 from .conditional_logic import ConditionalLogic
+from .parallel import wire_parallel_analysts
 
 
 class GraphSetup:
@@ -89,15 +91,15 @@ class GraphSetup:
         # Create workflow
         workflow = StateGraph(AgentState)
 
-        # Add analyst nodes to the graph
-        for analyst_type, node in analyst_nodes.items():
-            workflow.add_node(f"{analyst_type.capitalize()} Analyst", node)
-            workflow.add_node(
-                f"Msg Clear {analyst_type.capitalize()}", delete_nodes[analyst_type]
-            )
-            workflow.add_node(f"tools_{analyst_type}", tool_nodes[analyst_type])
+        # ─── ANALYST WIRING ───────────────────────────────────────────────
+        # Two paths:
+        #   (a) parallel — each analyst is an isolated sub-graph; all run
+        #       concurrently fan-out from START, fan-in to "Analysts Done"
+        #   (b) sequential (default) — chain through one analyst at a time
+        # Selected via cfg["parallel_analysts"] (or env TRADINGAGENTS_PARALLEL_ANALYSTS=1).
+        parallel_mode = bool(get_config().get("parallel_analysts"))
 
-        # Add other nodes
+        # Bull/Researcher/Trader/Risk/PM nodes live on the parent in BOTH modes
         workflow.add_node("Bull Researcher", bull_researcher_node)
         workflow.add_node("Bear Researcher", bear_researcher_node)
         workflow.add_node("Research Manager", research_manager_node)
@@ -107,31 +109,53 @@ class GraphSetup:
         workflow.add_node("Conservative Analyst", conservative_analyst)
         workflow.add_node("Portfolio Manager", portfolio_manager_node)
 
-        # Define edges
-        # Start with the first analyst
-        first_analyst = selected_analysts[0]
-        workflow.add_edge(START, f"{first_analyst.capitalize()} Analyst")
-
-        # Connect analysts in sequence
-        for i, analyst_type in enumerate(selected_analysts):
-            current_analyst = f"{analyst_type.capitalize()} Analyst"
-            current_tools = f"tools_{analyst_type}"
-            current_clear = f"Msg Clear {analyst_type.capitalize()}"
-
-            # Add conditional edges for current analyst
-            workflow.add_conditional_edges(
-                current_analyst,
-                getattr(self.conditional_logic, f"should_continue_{analyst_type}"),
-                [current_tools, current_clear],
+        if parallel_mode:
+            # Each analyst becomes a compiled sub-StateGraph with its own
+            # private `messages` channel — they run truly concurrently
+            # without scrambling each other's tool-call/result threads.
+            wire_parallel_analysts(
+                workflow,
+                selected_analysts,
+                analyst_nodes,
+                delete_nodes,
+                tool_nodes,
+                self.conditional_logic,
+                join_node_name="Analysts Done",
+                next_node_name="Bull Researcher",
             )
-            workflow.add_edge(current_tools, current_analyst)
+        else:
+            # Sequential — the original behaviour. Each analyst's tool loop
+            # runs on the parent's shared `messages` channel; ``msg_clear``
+            # wipes between analysts.
+            for analyst_type, node in analyst_nodes.items():
+                workflow.add_node(f"{analyst_type.capitalize()} Analyst", node)
+                workflow.add_node(
+                    f"Msg Clear {analyst_type.capitalize()}", delete_nodes[analyst_type]
+                )
+                workflow.add_node(f"tools_{analyst_type}", tool_nodes[analyst_type])
 
-            # Connect to next analyst or to Bull Researcher if this is the last analyst
-            if i < len(selected_analysts) - 1:
-                next_analyst = f"{selected_analysts[i+1].capitalize()} Analyst"
-                workflow.add_edge(current_clear, next_analyst)
-            else:
-                workflow.add_edge(current_clear, "Bull Researcher")
+            # Define edges — start with the first analyst
+            first_analyst = selected_analysts[0]
+            workflow.add_edge(START, f"{first_analyst.capitalize()} Analyst")
+
+            # Connect analysts in sequence
+            for i, analyst_type in enumerate(selected_analysts):
+                current_analyst = f"{analyst_type.capitalize()} Analyst"
+                current_tools = f"tools_{analyst_type}"
+                current_clear = f"Msg Clear {analyst_type.capitalize()}"
+
+                workflow.add_conditional_edges(
+                    current_analyst,
+                    getattr(self.conditional_logic, f"should_continue_{analyst_type}"),
+                    [current_tools, current_clear],
+                )
+                workflow.add_edge(current_tools, current_analyst)
+
+                if i < len(selected_analysts) - 1:
+                    next_analyst = f"{selected_analysts[i+1].capitalize()} Analyst"
+                    workflow.add_edge(current_clear, next_analyst)
+                else:
+                    workflow.add_edge(current_clear, "Bull Researcher")
 
         # Add remaining edges
         workflow.add_conditional_edges(

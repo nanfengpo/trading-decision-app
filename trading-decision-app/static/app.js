@@ -458,6 +458,8 @@ function readForm() {
     risk_tolerance: parseInt(document.getElementById("risk-tolerance").value, 10) || 3,
     instrument_hint: document.getElementById("instrument").value,
     mode: document.getElementById("mode").value,
+    parallel_analysts: !!document.getElementById("opt-parallel-analysts")?.checked,
+    structured_reports: !!document.getElementById("opt-structured-reports")?.checked,
   };
 }
 
@@ -813,6 +815,11 @@ class DecisionWindow {
       case "past_context":
         this.runState.past_context = evt.content;
         this.renderPastContext();
+        break;
+      case "structured_reports":
+        // Optional opt-in (#10). Stored alongside markdown reports —
+        // History.save() persists this in decisions.run_state for SQL queries.
+        this.runState.structured_reports = evt.reports;
         break;
       case "complete":
         this.setStatusText("分析完成 ✔");

@@ -121,6 +121,10 @@ class AnalysisRequest:
     # Stable user id (Supabase auth.uid()) — used by the DB-backed usage
     # logger to attribute calls. None for anonymous (single-tenant mode).
     user_id: Optional[str] = None
+    # Performance toggles. Default off for safety; enable per-request or
+    # via env (TRADINGAGENTS_PARALLEL_ANALYSTS=1, TRADINGAGENTS_STRUCTURED_REPORTS=1).
+    parallel_analysts: bool = False
+    structured_reports: bool = False
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "AnalysisRequest":
@@ -146,6 +150,8 @@ class AgentRunner:
         self.translator: Optional[Translator] = None
         self._msg_id_counter = itertools.count(1)
         self._stats_handler = None         # set in _run_live
+        self._granular_handler = None
+        self._last_chunk = None            # captured for #10 structured extraction
         self._run_started_at = time.time()
 
     # public ---------------------------------------------------------------
@@ -318,6 +324,13 @@ class AgentRunner:
         # Stored under TRADINGAGENTS_CACHE_DIR/{ticker}/checkpoint.sqlite — a
         # crash mid-stream can be resumed by re-running the same ticker+date.
         cfg["checkpoint_enabled"] = os.environ.get("TRADINGAGENTS_CHECKPOINT", "").lower() in ("1", "true", "yes")
+
+        # Parallel analyst execution (#9) — see TradingAgents/tradingagents/
+        # graph/parallel.py. Wraps each analyst as an isolated sub-graph so
+        # all 4 run concurrently without scrambling AgentState.messages.
+        # Halves wall-clock per LIVE decision (~3 min → ~1.5 min).
+        cfg["parallel_analysts"] = bool(self.req.parallel_analysts) or \
+            os.environ.get("TRADINGAGENTS_PARALLEL_ANALYSTS", "").lower() in ("1", "true", "yes")
         if self.req.backend_url:
             cfg["backend_url"] = self.req.backend_url
 
@@ -468,6 +481,27 @@ class AgentRunner:
                         "research_plan": (chunk.get("investment_debate_state") or {}).get("judge_decision", ""),
                     },
                 })
+
+            # remember the latest chunk; we want the final one for structured extraction
+            self._last_chunk = chunk
+
+        # ── post-graph: structured extraction (#10) ──────────────────────
+        # Run an extra LLM pass over each *_report markdown to produce a
+        # typed Pydantic dict. Output lands in run_state.structured_reports
+        # so users can SQL-query analyst signals across decisions.
+        # Enabled by:
+        #   - per-request: req.structured_reports=True
+        #   - global env:  TRADINGAGENTS_STRUCTURED_REPORTS=1
+        want_structured = bool(self.req.structured_reports) or \
+            os.environ.get("TRADINGAGENTS_STRUCTURED_REPORTS", "").lower() in ("1", "true", "yes")
+        if want_structured:
+            try:
+                from structured_extractor import extract_all as _extract_structured
+                structured = _extract_structured(self._last_chunk or {}, graph.quick_thinking_llm)
+                if structured:
+                    self.emit({"type": "structured_reports", "reports": structured})
+            except Exception as e:
+                logger.warning("structured extraction failed: %s", e)
 
     # DEMO -----------------------------------------------------------------
 
