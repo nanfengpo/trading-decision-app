@@ -34,24 +34,57 @@ git push origin main
 
 ## 我们做了什么改动需要保护？
 
-**目前为止：0 处源码改动**。所有增强都在外部：
+**当前 4 处源码改动（v6 起）**，全部在 `patches/` 下作为 git diff 维护：
 
-- Kimi (Moonshot) provider — 通过 `trading-decision-app/backend/agent_runner.py::_patch_tradingagents_for_extra_providers()` 在导入时 monkey-patch
-- 翻译层 — 在我们的 backend 拦截 SSE 事件
-- 付费数据源（Finnhub Pro / Polygon / Alpha Vantage / AkShare） — 独立的 `dataflows/` 包，文档说明了如何无破坏地接入 TradingAgents
+| 文件 | 改动 | 出现在 |
+|---|---|---|
+| `tradingagents/llm_clients/factory.py` | `_OPENAI_COMPATIBLE` 加入 `"kimi"` | `0001-add-kimi-provider.patch` |
+| `tradingagents/llm_clients/openai_client.py` | `_PROVIDER_CONFIG` 加入 Kimi base URL + key | `0001-add-kimi-provider.patch` |
+| `tradingagents/dataflows/interface.py` | 末尾追加 6 行 — 自动调用 premium_bridge.register() | `0002-premium-dataflows-bridge.patch` |
+| `tradingagents/dataflows/premium_bridge.py` | 新文件 — 把外部 `dataflows/` 包注册为 vendor | `0002-premium-dataflows-bridge.patch` |
 
-未来如果你要直接改 TradingAgents 源码（比如把 dataflows 真正接到 analysts 工具列表里），改动会进入 `git subtree pull` 的合并视野，**届时合并冲突可能集中在你改过的文件**。届时 workflow 如下：
+其他增强仍在外部：
+- 翻译层 — 在我们 backend 拦截 SSE 事件
+- 付费数据源 — `trading-decision-app/backend/dataflows/` 独立包，被 premium_bridge 桥接进 TradingAgents
+
+## 上游同步工作流
+
+每次 `git subtree pull` 时按这个顺序操作：
 
 ```bash
-# 把本地补丁单独拎出来作为一个 patch series（避免每次 subtree pull 都重做）
-cd TradingAgents
-git format-patch HEAD~3 -o ../patches/
-
-# subtree pull 之后重新 apply
-cd ..
+# 1) 拉上游
+git fetch tradingagents-upstream
 git subtree pull --prefix=TradingAgents tradingagents-upstream main --squash
-cd TradingAgents
-git am ../patches/*.patch
+
+# 2) 我们的 patches 现在可能与新上游冲突了。先看一下：
+bash patches/apply-patches.sh --check
+# 如果 OK → 直接：
+bash patches/apply-patches.sh
+git add TradingAgents/ && git commit -m "Re-apply local patches after upstream sync"
+```
+
+如果 `--check` 报冲突：
+
+```bash
+# 3) 上游改了我们碰过的同一行 → 先把 subtree pull 回滚，按手工流程：
+git reset --hard HEAD~1   # 撤销 subtree pull commit
+# 再次拉，但这次允许我们重新生成 patches：
+git subtree pull --prefix=TradingAgents tradingagents-upstream main --squash
+
+# 删除老 patches（已过时）
+rm patches/000{1,2}-*.patch
+
+# 重新做改动（从 README "Phase B+C" 段抄一遍）— 编辑 4 个文件
+$EDITOR TradingAgents/tradingagents/llm_clients/factory.py
+$EDITOR TradingAgents/tradingagents/llm_clients/openai_client.py
+$EDITOR TradingAgents/tradingagents/dataflows/interface.py
+# premium_bridge.py 文件直接复制旧版本即可，它和上游无冲突
+
+# 重新生成 patches
+git add TradingAgents/tradingagents/...修改的4个文件
+git diff --cached -- TradingAgents/tradingagents/llm_clients/ > patches/0001-add-kimi-provider.patch
+git diff --cached -- TradingAgents/tradingagents/dataflows/   > patches/0002-premium-dataflows-bridge.patch
+git commit -m "Re-port local patches to new upstream"
 ```
 
 ## 给上游回贡献
