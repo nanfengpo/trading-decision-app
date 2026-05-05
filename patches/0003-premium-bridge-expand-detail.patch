@@ -1,0 +1,82 @@
+diff --git a/TradingAgents/tradingagents/dataflows/premium_bridge.py b/TradingAgents/tradingagents/dataflows/premium_bridge.py
+index f0c0ec7..5dedd0b 100644
+--- a/TradingAgents/tradingagents/dataflows/premium_bridge.py
++++ b/TradingAgents/tradingagents/dataflows/premium_bridge.py
+@@ -72,11 +72,12 @@ def _wrap_quote(src) -> Callable:
+ def _wrap_indicators(src) -> Callable:
+     def _impl(*args, **kwargs) -> str:
+         ticker = args[0] if args else kwargs.get("ticker") or kwargs.get("symbol")
+-        # Most premium sources put indicators in their quote summary already
+-        # (SMA/RSI/MACD synthesised on closes). If a vendor exposes a richer
+-        # method, the dataflows package can override fetch_indicator_summary.
+-        out = (src.fetch_indicator_summary(ticker) if hasattr(src, "fetch_indicator_summary")
+-               else src.fetch_quote_summary(ticker))
++        # Prefer the vendor's dedicated indicator endpoint; fall back to
++        # the quote summary's synthesised indicators only when the vendor
++        # didn't override fetch_indicator_summary.
++        out = src.fetch_indicator_summary(ticker)
++        if out is None:
++            out = src.fetch_quote_summary(ticker)
+         return _format_signal(out)
+     return _impl
+ 
+@@ -88,11 +89,43 @@ def _wrap_fundamentals(src) -> Callable:
+     return _impl
+ 
+ 
++def _wrap_balance_sheet(src) -> Callable:
++    def _impl(*args, **kwargs) -> str:
++        ticker = args[0] if args else kwargs.get("ticker") or kwargs.get("symbol")
++        out = src.fetch_balance_sheet_summary(ticker)
++        if out is None:                       # vendor didn't override → fall back
++            out = src.fetch_fundamentals_summary(ticker)
++        return _format_signal(out)
++    return _impl
++
++
++def _wrap_income_statement(src) -> Callable:
++    def _impl(*args, **kwargs) -> str:
++        ticker = args[0] if args else kwargs.get("ticker") or kwargs.get("symbol")
++        out = src.fetch_income_statement_summary(ticker)
++        if out is None:
++            out = src.fetch_fundamentals_summary(ticker)
++        return _format_signal(out)
++    return _impl
++
++
++def _wrap_cashflow(src) -> Callable:
++    def _impl(*args, **kwargs) -> str:
++        ticker = args[0] if args else kwargs.get("ticker") or kwargs.get("symbol")
++        out = src.fetch_cashflow_summary(ticker)
++        if out is None:
++            out = src.fetch_fundamentals_summary(ticker)
++        return _format_signal(out)
++    return _impl
++
++
+ def _wrap_insider(src) -> Callable:
+     def _impl(*args, **kwargs) -> str:
+-        # Stub — most premium dataflow sources don't differentiate insider
+-        # transactions; raise so TradingAgents falls back to yfinance.
+-        raise RuntimeError("premium source has no insider-transactions method")
++        ticker = args[0] if args else kwargs.get("ticker") or kwargs.get("symbol")
++        # Vendor either implements fetch_insider_summary (Finnhub Pro) or
++        # returns None → BaseDataSource default → fall back to yfinance.
++        out = src.fetch_insider_summary(ticker)
++        return _format_signal(out)
+     return _impl
+ 
+ 
+@@ -104,9 +137,9 @@ _METHOD_BINDINGS = {
+     "get_stock_data":        ("market",       _wrap_quote),
+     "get_indicators":        ("market",       _wrap_indicators),
+     "get_fundamentals":      ("fundamentals", _wrap_fundamentals),
+-    "get_balance_sheet":     ("fundamentals", _wrap_fundamentals),
+-    "get_cashflow":          ("fundamentals", _wrap_fundamentals),
+-    "get_income_statement":  ("fundamentals", _wrap_fundamentals),
++    "get_balance_sheet":     ("fundamentals", _wrap_balance_sheet),
++    "get_cashflow":          ("fundamentals", _wrap_cashflow),
++    "get_income_statement":  ("fundamentals", _wrap_income_statement),
+ }
+ 
+ 

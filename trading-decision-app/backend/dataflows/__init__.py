@@ -36,6 +36,7 @@ from .registry import (
     register,
     available,
 )
+from .cache import cache_stats, cache_clear
 from .factory import get_source, list_categories
 from .summarize import summarize_news, summarize_quotes, summarize_fundamentals
 

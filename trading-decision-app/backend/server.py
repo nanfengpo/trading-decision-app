@@ -246,6 +246,12 @@ async def dataflows() -> JSONResponse:
     return JSONResponse(dataflows_list())
 
 
+@app.get("/api/dataflows/cache-stats")
+async def dataflows_cache_stats() -> JSONResponse:
+    from dataflows import cache_stats
+    return JSONResponse(cache_stats())
+
+
 @app.on_event("startup")
 async def _startup_scanner() -> None:
     """Kick off the opportunities scanner unless explicitly disabled."""
