@@ -314,6 +314,10 @@ class AgentRunner:
         cfg["max_debate_rounds"] = self.req.research_depth
         cfg["max_risk_discuss_rounds"] = self.req.research_depth
         cfg["output_language"] = self.req.output_language
+        # Resume from checkpoint when set (env: TRADINGAGENTS_CHECKPOINT=1).
+        # Stored under TRADINGAGENTS_CACHE_DIR/{ticker}/checkpoint.sqlite — a
+        # crash mid-stream can be resumed by re-running the same ticker+date.
+        cfg["checkpoint_enabled"] = os.environ.get("TRADINGAGENTS_CHECKPOINT", "").lower() in ("1", "true", "yes")
         if self.req.backend_url:
             cfg["backend_url"] = self.req.backend_url
 
@@ -343,6 +347,15 @@ class AgentRunner:
             init_state = graph.propagator.create_initial_state(self.req.ticker, self.req.trade_date)
             args = graph.propagator.get_graph_args(callbacks=[stats_handler, granular])
         # ─── lock released; from here on the graph runs without env access ───
+
+        # Emit past-context BEFORE the graph starts so the frontend can show
+        # "what we knew from previous decisions" as the cockpit fills in.
+        try:
+            past_ctx = graph.memory_log.get_past_context(self.req.ticker)
+            if past_ctx:
+                self.emit({"type": "past_context", "ticker": self.req.ticker, "content": past_ctx})
+        except Exception as e:
+            logger.debug("past_context emit failed: %s", e)
 
         # mark first analyst in_progress
         if self.req.analysts:
@@ -605,17 +618,29 @@ def _classify_msg(msg: Any) -> str:
 
 
 def _extract_rating(text: str) -> str:
+    """Extract the 5-tier rating from a Portfolio Manager decision text.
+
+    The PM uses Pydantic-typed structured output (PortfolioDecision schema),
+    so the rendered markdown ALWAYS carries a clean ``**Rating**: X`` line.
+    We delegate to TradingAgents' canonical ``parse_rating`` which already
+    handles markdown bold, colons/hyphens, and falls back to first-word scan.
+    """
     if not text:
         return "Hold"
-    upper = text.upper()
-    for word in ("BUY", "OVERWEIGHT", "HOLD", "UNDERWEIGHT", "SELL"):
-        if f"RATING: {word}" in upper or f"**RATING:** {word}" in upper:
-            return word.title()
-    # fallback: scan for the words
-    for word in ("Overweight", "Underweight", "Buy", "Sell", "Hold"):
-        if word.lower() in text.lower():
-            return word
-    return "Hold"
+    try:
+        from tradingagents.agents.utils.rating import parse_rating  # type: ignore
+        return parse_rating(text, default="Hold")
+    except Exception:
+        # Pure-fallback path for environments without TradingAgents
+        # (DEMO mode without LIVE deps installed).
+        upper = (text or "").upper()
+        for word in ("BUY", "OVERWEIGHT", "HOLD", "UNDERWEIGHT", "SELL"):
+            if f"RATING: {word}" in upper or f"**RATING:** {word}" in upper or f"RATING - {word}" in upper:
+                return word.title()
+        for word in ("Overweight", "Underweight", "Buy", "Sell", "Hold"):
+            if word.lower() in (text or "").lower():
+                return word
+        return "Hold"
 
 
 # ---- demo content (intentionally short) ------------------------------------

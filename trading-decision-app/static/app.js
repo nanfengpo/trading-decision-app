@@ -492,6 +492,10 @@ function buildCockpitDOM() {
             <span class="icon">📡</span><span class="label">事件流</span>
             <span class="badge" data-badge="logs">0</span>
           </li>
+          <li data-section="past-context">
+            <span class="icon">📝</span><span class="label">历史回顾</span>
+            <span class="badge" data-badge="past-context">—</span>
+          </li>
           <li class="sidebar-group">分析师报告</li>
           <li data-section="report-market_report">
             <span class="icon">📈</span><span class="label">市场技术</span>
@@ -542,6 +546,13 @@ function buildCockpitDOM() {
         <section class="cockpit-section" data-section="logs">
           <div class="panel"><div class="head">实时事件流</div>
             <div class="body" style="padding:10px;"><div class="log-stream"></div></div>
+          </div>
+        </section>
+        <section class="cockpit-section" data-section="past-context">
+          <div class="panel"><div class="head">📝 历史回顾 — 来自 TradingAgents 记忆库</div>
+            <div class="body section-body past-context-body">
+              <div class="muted">无历史数据 — 同标的第一次跑或 5 天内无回溯。</div>
+            </div>
           </div>
         </section>
         ${[
@@ -799,6 +810,10 @@ class DecisionWindow {
       case "usage_event":
         (this.runState.usage_events ||= []).push(evt);
         break;
+      case "past_context":
+        this.runState.past_context = evt.content;
+        this.renderPastContext();
+        break;
       case "complete":
         this.setStatusText("分析完成 ✔");
         this.markStatus("done");
@@ -881,6 +896,25 @@ class DecisionWindow {
     stream.appendChild(line);
     stream.scrollTop = stream.scrollHeight;
     this.setBadge("logs", String(stream.querySelectorAll(".line").length));
+  }
+
+  /**
+   * Render the past_context (TradingAgents memory log) into the cockpit's
+   * "📝 历史回顾" section. Called when a `past_context` SSE event arrives.
+   */
+  renderPastContext() {
+    const ctx = this.runState.past_context;
+    const body = this.q(".past-context-body");
+    if (!body) return;
+    if (!ctx || !ctx.trim()) {
+      body.innerHTML = `<div class="muted">无历史数据 — 同标的第一次跑或 5 天内无回溯。</div>`;
+      this.setBadge("past-context", "—");
+      return;
+    }
+    body.innerHTML = mdLite(ctx);
+    // count entries roughly by counting "[YYYY-MM-DD" headers
+    const matches = (ctx.match(/\[\d{4}-\d{2}-\d{2}/g) || []).length;
+    this.setBadge("past-context", String(matches), "ready");
   }
 
   renderReport(evt) {
@@ -1166,77 +1200,200 @@ class DecisionWindow {
     const p = this.params || {};
     const dec = this.runState.finalDecision || {};
     const parsed = dec.parsed || {};
+    const usage = this.runState.usage || {};
+
+    // ---- TOC + section visibility scan ---------------------------------
+    // Determine which sections actually have content. The TOC is generated
+    // dynamically so empty sections don't appear as broken anchors.
+    const has = {
+      decision: Boolean(dec.rating || dec.raw_zh || dec.raw_en),
+      strategies: (this.runState.matchedStrategies || []).length > 0,
+      reports: ["market_report","sentiment_report","news_report","fundamentals_report"]
+                  .some(k => this.runState.reports[k]),
+      debate: (this.runState.debate.bull.length + this.runState.debate.bear.length) > 0,
+      risk: (this.runState.riskDebate.aggressive.length
+             + this.runState.riskDebate.neutral.length
+             + this.runState.riskDebate.conservative.length) > 0,
+      research_plan: Boolean(this.runState.reports["investment_plan"]),
+      trader_plan: Boolean(this.runState.reports["trader_investment_plan"]),
+      usage: usage && (usage.tokens_in || usage.tokens_out || usage.llm_calls),
+    };
+
+    // Big rating badge in the header. Markdown viewers render bold + emoji
+    // — and Markdown→HTML pipelines (gh, GitLab) keep the colour intent.
+    const ratingEmoji = {
+      Buy: "🟢", Overweight: "🟢",
+      Hold: "⚪",
+      Sell: "🔴", Underweight: "🔴",
+    }[dec.rating] || "⚪";
+    const ratingBadge = dec.rating
+      ? `**${ratingEmoji} ${dec.rating}${dec.confidence ? `** · 信心 ${dec.confidence}` : "**"}`
+      : "**⚪ 未生成**";
+
     const lines = [];
-    lines.push(`# 智能交易决策报告 — ${p.ticker || ""}`);
+
+    // ---- HEADER ---------------------------------------------------------
+    lines.push(`# 📊 智能交易决策报告 — ${p.ticker || ""}`);
     lines.push("");
-    lines.push(`- **分析日期**: ${p.trade_date || ""}`);
-    lines.push(`- **运行时间**: ${this.startedAt || ""} → ${this.completedAt || "(进行中)"}`);
-    lines.push(`- **LLM**: ${p.llm_provider} · deep=${p.deep_think_llm} · quick=${p.quick_think_llm}`);
-    lines.push(`- **研究深度**: ${p.research_depth} 轮`);
+    lines.push(`> ${ratingBadge}`);
+    lines.push("");
+
+    // metadata table for cleaner rendering
+    lines.push("| 字段 | 值 |");
+    lines.push("|---|---|");
+    lines.push(`| 分析日期 | ${p.trade_date || "—"} |`);
+    lines.push(`| 运行时间 | ${this.startedAt || "—"} → ${this.completedAt || "(进行中)"} |`);
+    lines.push(`| LLM 提供商 | \`${p.llm_provider || "—"}\` |`);
+    lines.push(`| 深思模型 | \`${p.deep_think_llm || "—"}\` |`);
+    lines.push(`| 轻思模型 | \`${p.quick_think_llm || "—"}\` |`);
+    lines.push(`| 研究深度 | ${p.research_depth || 1} 轮 |`);
     if (this.runState.translation) {
-      lines.push(`- **翻译层**: ${this.runState.translation.available ? `已启用 (${this.runState.translation.provider}/${this.runState.translation.model})` : "未启用"}`);
+      const t = this.runState.translation;
+      lines.push(`| 翻译层 | ${t.available ? `\`${t.provider}/${t.model}\`` : "未启用"} |`);
+    }
+    if (has.usage) {
+      lines.push(`| Token 用量 | input ${usage.tokens_in || 0} · output ${usage.tokens_out || 0} · ${usage.llm_calls || 0} 次 LLM 调用 |`);
     }
     lines.push("");
-    lines.push("## 🎯 最终决策");
-    lines.push(`**评级**: \`${dec.rating || "—"}\`  ${dec.confidence ? `**信心**: ${dec.confidence}` : ""}`);
+
+    // ---- TABLE OF CONTENTS ---------------------------------------------
+    lines.push("## 📑 目录");
     lines.push("");
-    lines.push(dec.raw_zh || dec.raw_en || "_(未生成)_");
-    lines.push("");
-    lines.push("## 📚 策略库匹配");
-    (this.runState.matchedStrategies || []).forEach((m, i) => {
-      lines.push(`### ${i + 1}. ${m.name} (${m.en || ""}) · 匹配分 ${m.score}`);
-      lines.push(`- **类别**: ${(typeof CAT_NAMES !== "undefined" && CAT_NAMES[m.cat]) || m.cat}`);
-      lines.push(`- **描述**: ${m.desc || ""}`);
-      lines.push(`- **怎么做**: ${m.how || ""}`);
-      if (m.params?.length) lines.push(`- **关键参数**: ${m.params.map(([k, v]) => `${k}=${v}`).join("; ")}`);
-      lines.push(`- **匹配原因**: ${(m.reasons || []).join("； ")}`);
-      if (m.example) lines.push(`- **示例**: ${m.example}`);
-      lines.push("");
-    });
-    lines.push("## 📝 分析师报告");
-    ["market_report", "sentiment_report", "news_report", "fundamentals_report"].forEach(k => {
-      const r = this.runState.reports[k];
-      if (!r) return;
-      lines.push(`### ${REPORT_TITLE_ZH[k] || k}`);
-      lines.push(r.content_zh || r.content_en || "_(未生成)_");
-      lines.push("");
-    });
-    lines.push("## 🐂 vs 🐻 投资观点辩论");
-    ["bull", "bear"].forEach(side => {
-      const arr = this.runState.debate[side];
-      if (!arr.length) return;
-      lines.push(`### ${side === "bull" ? "🐂 牛市研究员" : "🐻 熊市研究员"}`);
-      arr.forEach((t, i) => {
-        lines.push(`**回合 ${i + 1}** _(${t.ts || ""})_`);
-        lines.push(t.content_zh || t.content_en || "");
-        lines.push("");
+    if (has.decision)      lines.push("- [🎯 最终决策](#最终决策)");
+    if (has.strategies)    lines.push(`- [📚 策略库匹配 (${this.runState.matchedStrategies.length})](#策略库匹配)`);
+    if (has.reports) {
+      lines.push("- [📝 分析师报告](#分析师报告)");
+      ["market_report","sentiment_report","news_report","fundamentals_report"].forEach(k => {
+        if (!this.runState.reports[k]) return;
+        const slug = k.replace(/_/g, "-");
+        lines.push(`  - [${REPORT_TITLE_ZH[k] || k}](#${slug})`);
       });
-    });
-    lines.push("## ⚖️ 风险三方辩论");
-    ["aggressive", "neutral", "conservative"].forEach(side => {
-      const arr = this.runState.riskDebate[side];
-      if (!arr.length) return;
-      const label = { aggressive: "🔥 激进", neutral: "⚖️ 中立", conservative: "🛡️ 保守" }[side];
-      lines.push(`### ${label}`);
-      arr.forEach((t, i) => {
-        lines.push(`**回合 ${i + 1}** _(${t.ts || ""})_`);
-        lines.push(t.content_zh || t.content_en || "");
-        lines.push("");
-      });
-    });
-    if (this.runState.reports["investment_plan"]) {
-      lines.push("## 📋 研究经理 · 投资计划");
-      lines.push(this.runState.reports["investment_plan"].content_zh || this.runState.reports["investment_plan"].content_en || "");
-      lines.push("");
     }
-    if (this.runState.reports["trader_investment_plan"]) {
-      lines.push("## 🧾 交易员 · 交易提案");
-      lines.push(this.runState.reports["trader_investment_plan"].content_zh || this.runState.reports["trader_investment_plan"].content_en || "");
-      lines.push("");
-    }
+    if (has.debate)        lines.push("- [🐂 vs 🐻 投资观点辩论](#投资观点辩论)");
+    if (has.risk)          lines.push("- [⚖️ 风险三方辩论](#风险三方辩论)");
+    if (has.research_plan) lines.push("- [📋 研究经理 · 投资计划](#研究经理-投资计划)");
+    if (has.trader_plan)   lines.push("- [🧾 交易员 · 交易提案](#交易员-交易提案)");
+    lines.push("");
     lines.push("---");
     lines.push("");
-    lines.push("_本报告由智能交易决策系统自动生成。教育目的，不构成投资建议。_");
+
+    // ---- DECISION (anchor: 最终决策) -----------------------------------
+    if (has.decision) {
+      lines.push("## 🎯 最终决策");
+      lines.push("");
+      lines.push(`> ${ratingBadge}`);
+      lines.push("");
+      // Signal tags row
+      const tags = [];
+      if (parsed.view)       tags.push(`观点: \`${parsed.view}\``);
+      if (parsed.horizon)    tags.push(`周期: \`${parsed.horizon}\``);
+      if (parsed.volatility) tags.push(`波动: \`${parsed.volatility}\``);
+      if (tags.length)       lines.push("**信号**: " + tags.join(" · "));
+      lines.push("");
+      lines.push(dec.raw_zh || dec.raw_en || "_(未生成)_");
+      lines.push("");
+    }
+
+    // ---- STRATEGY MATCHES (anchor: 策略库匹配) -------------------------
+    if (has.strategies) {
+      lines.push("## 📚 策略库匹配");
+      lines.push("");
+      // Compact summary table first
+      lines.push("| # | 策略 | 类别 | 匹配分 |");
+      lines.push("|---|---|---|---|");
+      (this.runState.matchedStrategies || []).forEach((m, i) => {
+        const cat = (typeof CAT_NAMES !== "undefined" && CAT_NAMES[m.cat]) || m.cat;
+        lines.push(`| ${i + 1} | **${m.name}** _(${m.en || ""})_ | ${cat} | ${m.score} |`);
+      });
+      lines.push("");
+      // Detailed cards
+      (this.runState.matchedStrategies || []).forEach((m, i) => {
+        lines.push(`### ${i + 1}. ${m.name} _(${m.en || ""})_`);
+        lines.push("");
+        lines.push(`- **类别**: ${(typeof CAT_NAMES !== "undefined" && CAT_NAMES[m.cat]) || m.cat}`);
+        lines.push(`- **匹配分**: ${m.score}`);
+        lines.push(`- **描述**: ${m.desc || ""}`);
+        lines.push(`- **怎么做**: ${m.how || ""}`);
+        if (m.params?.length) lines.push(`- **关键参数**: ${m.params.map(([k, v]) => `${k}=${v}`).join("; ")}`);
+        lines.push(`- **匹配原因**: ${(m.reasons || []).join("； ")}`);
+        if (m.example) lines.push(`- **示例**: ${m.example}`);
+        lines.push("");
+      });
+    }
+
+    // ---- ANALYST REPORTS (anchor: 分析师报告) --------------------------
+    if (has.reports) {
+      lines.push("## 📝 分析师报告");
+      lines.push("");
+      ["market_report", "sentiment_report", "news_report", "fundamentals_report"].forEach(k => {
+        const r = this.runState.reports[k];
+        if (!r) return;
+        lines.push(`### ${REPORT_TITLE_ZH[k] || k}`);
+        lines.push("");
+        lines.push(r.content_zh || r.content_en || "_(未生成)_");
+        lines.push("");
+      });
+    }
+
+    // ---- DEBATE (anchor: 投资观点辩论) ---------------------------------
+    if (has.debate) {
+      lines.push("## 🐂 vs 🐻 投资观点辩论");
+      lines.push("");
+      ["bull", "bear"].forEach(side => {
+        const arr = this.runState.debate[side];
+        if (!arr.length) return;
+        lines.push(`### ${side === "bull" ? "🐂 牛市研究员" : "🐻 熊市研究员"}`);
+        lines.push("");
+        arr.forEach((t, i) => {
+          lines.push(`**回合 ${i + 1}** _(${t.ts || ""})_`);
+          lines.push("");
+          lines.push(t.content_zh || t.content_en || "");
+          lines.push("");
+        });
+      });
+    }
+
+    // ---- RISK DEBATE (anchor: 风险三方辩论) ----------------------------
+    if (has.risk) {
+      lines.push("## ⚖️ 风险三方辩论");
+      lines.push("");
+      ["aggressive", "neutral", "conservative"].forEach(side => {
+        const arr = this.runState.riskDebate[side];
+        if (!arr.length) return;
+        const label = { aggressive: "🔥 激进", neutral: "⚖️ 中立", conservative: "🛡️ 保守" }[side];
+        lines.push(`### ${label}`);
+        lines.push("");
+        arr.forEach((t, i) => {
+          lines.push(`**回合 ${i + 1}** _(${t.ts || ""})_`);
+          lines.push("");
+          lines.push(t.content_zh || t.content_en || "");
+          lines.push("");
+        });
+      });
+    }
+
+    // ---- RESEARCH PLAN -------------------------------------------------
+    if (has.research_plan) {
+      lines.push("## 📋 研究经理 · 投资计划");
+      lines.push("");
+      const r = this.runState.reports["investment_plan"];
+      lines.push(r.content_zh || r.content_en || "");
+      lines.push("");
+    }
+
+    // ---- TRADER PLAN ---------------------------------------------------
+    if (has.trader_plan) {
+      lines.push("## 🧾 交易员 · 交易提案");
+      lines.push("");
+      const r = this.runState.reports["trader_investment_plan"];
+      lines.push(r.content_zh || r.content_en || "");
+      lines.push("");
+    }
+
+    // ---- FOOTER --------------------------------------------------------
+    lines.push("---");
+    lines.push("");
+    lines.push("_本报告由 **TradingForge · 智策** 自动生成。教育目的，不构成投资建议。_");
     return lines.join("\n");
   }
 }
@@ -2196,6 +2353,58 @@ const Profile = {
   },
 
   // ────────────────────────────────────────────── 用量 (usage)
+  /**
+   * Fetch the backend's per-model price table once per session and
+   * cache it. Returned shape: { provider: [{model, input_per_1m_usd,
+   * output_per_1m_usd}] }. Returns {} if the fetch fails so callers can
+   * still render a degraded UI ("—" for cost).
+   */
+  async _fetchCostTable() {
+    if (this._costTableCache) return this._costTableCache;
+    try {
+      const apiBase = (window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL) || "";
+      const r = await fetch(`${apiBase}/api/cost-table`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      this._costTableCache = await r.json();
+    } catch (e) {
+      console.warn("cost-table fetch failed:", e);
+      this._costTableCache = {};
+    }
+    return this._costTableCache;
+  },
+
+  /**
+   * Look up the per-1M USD prices for a (provider, model) pair against
+   * a cost-table object (shape returned by _fetchCostTable). Mirrors
+   * the longest-prefix-wins logic of backend/cost_table.py so the
+   * front-end and back-end agree on cost numbers.
+   */
+  _lookupPrice(costTable, provider, model) {
+    const p = (provider || "").toLowerCase();
+    const m = (model || "").toLowerCase();
+    const rows = costTable[p] || [];
+    let best = null;
+    for (const row of rows) {
+      const mp = (row.model || "").toLowerCase();
+      if (m.startsWith(mp) && (!best || mp.length > best.model.length)) {
+        best = { model: mp, input: row.input_per_1m_usd, output: row.output_per_1m_usd };
+      }
+    }
+    return best;
+  },
+
+  /**
+   * Format a USD amount for the .cost column. Returns "—" if the price
+   * lookup failed (unknown model) so the user sees a clear "no data"
+   * marker rather than a misleading $0.00.
+   */
+  _formatCost(usd) {
+    if (usd === null || usd === undefined) return "—";
+    if (usd === 0) return "$0.00";
+    if (usd < 0.01) return "<$0.01";
+    return `$${usd.toFixed(2)}`;
+  },
+
   async renderUsage() {
     const llmEl = document.getElementById("usage-llm");
     const dataEl = document.getElementById("usage-data");
@@ -2220,6 +2429,73 @@ const Profile = {
       Object.keys(dataCounts).forEach(c => { dataCounts[c] += 1; });
     }
 
+    // Fetch the cost table + sum tokens per provider over the last 90d
+    // so each row can show a $-cost estimate alongside the call count.
+    // We try Supabase first (the system-of-record once usage_events is
+    // flushed there), and fall back to History.cache if the query
+    // fails or returns no rows (e.g. RLS not yet provisioned).
+    const costTable = await this._fetchCostTable();
+    const cutoffIso = new Date(cutoff).toISOString();
+    const usageByProv = {};   // provId -> [{model, tokens_in, tokens_out}]
+    let usedSupabase = false;
+    if (window.Auth?.rawClient) {
+      try {
+        const { data, error } = await window.Auth.rawClient()
+          .from("usage_events")
+          .select("provider, model, tokens_in, tokens_out")
+          .eq("kind", "llm_call")
+          .gte("ts", cutoffIso);
+        if (!error && Array.isArray(data)) {
+          usedSupabase = true;
+          for (const row of data) {
+            const pid = (row.provider || "unknown").toLowerCase();
+            (usageByProv[pid] ||= []).push({
+              model: row.model || "",
+              tokens_in: row.tokens_in || 0,
+              tokens_out: row.tokens_out || 0,
+            });
+          }
+        }
+      } catch (e) {
+        console.warn("usage_events query failed, falling back to cache:", e);
+      }
+    }
+    if (!usedSupabase) {
+      // Walk History.cache for entries' runState.usage_events. Same
+      // aggregation shape as the Supabase branch above.
+      for (const e of History.cache) {
+        const ts = new Date(e.completedAt || e.startedAt).getTime();
+        if (ts < cutoff) continue;
+        const events = (e.runState && e.runState.usage_events) || [];
+        for (const ev of events) {
+          if (ev.kind && ev.kind !== "llm_call") continue;
+          const pid = (ev.provider || "unknown").toLowerCase();
+          (usageByProv[pid] ||= []).push({
+            model: ev.model || "",
+            tokens_in: ev.tokens_in || 0,
+            tokens_out: ev.tokens_out || 0,
+          });
+        }
+      }
+    }
+
+    // Sum cost per provider. If every event in a provider lacks pricing
+    // data we render "—"; otherwise we render the partial sum (unknown
+    // models contribute $0 and we silently skip them).
+    const costByProv = {};
+    for (const [pid, events] of Object.entries(usageByProv)) {
+      let total = 0;
+      let priced = 0;
+      for (const ev of events) {
+        const price = this._lookupPrice(costTable, pid, ev.model);
+        if (!price) continue;
+        priced += 1;
+        total += (ev.tokens_in / 1_000_000) * price.input
+               + (ev.tokens_out / 1_000_000) * price.output;
+      }
+      costByProv[pid] = priced > 0 ? total : null;
+    }
+
     const llmRows = this.LLM_KEYS.map(p => {
       const k = p.id.replace(/_API_KEY$/, "").toLowerCase();
       // map env → provider id used in /api/config
@@ -2230,6 +2506,7 @@ const Profile = {
       };
       const provId = provMap[p.id.toLowerCase()] || k;
       const count = llmCounts[provId] || 0;
+      const cost = this._formatCost(costByProv[provId]);
       return `
         <div class="usage-row">
           <span class="icon">🧠</span>
@@ -2238,6 +2515,7 @@ const Profile = {
             <div class="meta">用作 deep / quick 模型 · 近 90 天 ${count} 次决策</div>
           </div>
           <div class="count">${count}</div>
+          <div class="cost">${cost}</div>
           ${p.dash ? `<a class="dash-link" href="${p.dash}" target="_blank" rel="noopener">vendor 用量 ↗</a>` : `<span></span>`}
         </div>`;
     }).join("");
@@ -2251,6 +2529,7 @@ const Profile = {
           <div class="meta">分析师调用估算（每次 LIVE 决策 ×1）</div>
         </div>
         <div class="count">${n}</div>
+        <span></span>
         <span></span>
       </div>`).join("");
     dataEl.innerHTML = dataRows;

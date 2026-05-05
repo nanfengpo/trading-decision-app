@@ -834,7 +834,7 @@ nav.tabs button.active .nav-badge { background: rgba(255,255,255,0.3); color: va
 .profile-grid .panel.span-2 { grid-column: 1 / -1; }
 
 .usage-row {
-  display: grid; grid-template-columns: 24px 1fr auto auto; gap: 10px;
+  display: grid; grid-template-columns: 24px 1fr auto auto auto; gap: 10px;
   align-items: center; padding: 6px 0;
   border-bottom: 1px solid var(--border);
   font-size: 13px;
@@ -846,6 +846,11 @@ nav.tabs button.active .nav-badge { background: rgba(255,255,255,0.3); color: va
 .usage-row .count {
   font-family: Georgia, serif; font-size: 18px; color: var(--accent);
   font-weight: 700;
+}
+.usage-row .cost {
+  font-family: Georgia, serif; font-size: 16px;
+  color: var(--success); font-weight: 700;
+  min-width: 60px; text-align: right;
 }
 .usage-row .dash-link {
   font-size: 11px; padding: 2px 8px; border-radius: 8px;
