@@ -168,6 +168,12 @@ def route_to_vendor(method: str, *args, **kwargs):
         try:
             return impl_func(*args, **kwargs)
         except AlphaVantageRateLimitError:
-            continue  # Only rate limits trigger fallback
+            continue  # rate-limited — fall back
+        except RuntimeError:
+            # premium_bridge raises RuntimeError("premium source returned
+            # empty result") when the vendor returns nothing useful. Treat
+            # that the same as a rate-limit and continue to the next vendor
+            # (typically yfinance, which works without a key).
+            continue
 
     raise RuntimeError(f"No available vendor for '{method}'")
