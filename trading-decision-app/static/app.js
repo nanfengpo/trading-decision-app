@@ -476,6 +476,7 @@ function buildCockpitDOM() {
         <span class="mode-pill pill"></span>
         <span class="translation-pill pill" title="翻译层状态"></span>
         <span class="status-text muted" style="font-size:12px;"></span>
+        <button class="btn danger cancel-run" style="display:none;">⏹ 终止</button>
         <button class="btn secondary download-md" disabled>⬇ Markdown</button>
         <button class="btn secondary download-json" disabled>⬇ JSON</button>
         <button class="btn secondary save-history" disabled>📌 保存到历史</button>
@@ -638,6 +639,16 @@ class DecisionWindow {
       this.q(".save-history").textContent = "✓ 已保存";
       setTimeout(() => this.q(".save-history").textContent = "📌 保存到历史", 2000);
     });
+    this.q(".cancel-run").addEventListener("click", () => {
+      if (!confirm("确认终止本次决策？已生成的事件会保留。")) return;
+      this.cancel();
+    });
+  }
+
+  cancel() {
+    if (this.es) { this.es.close(); this.es = null; }
+    this.setStatusText("已终止");
+    this.markStatus("cancelled");
   }
 
   activateSection(sectionId) {
@@ -727,9 +738,8 @@ class DecisionWindow {
   }
 
   async start() {
-    this.status = "running";
+    this.markStatus("running");
     this.q(".cockpit-ticker").textContent = `${this.params.ticker} · ${this.params.trade_date}`;
-    WindowManager.renderTabs();
 
     try {
       const headers = { "Content-Type": "application/json" };
@@ -779,9 +789,11 @@ class DecisionWindow {
 
   markStatus(s) {
     this.status = s;
-    if (s === "done") this.completedAt = new Date().toISOString();
+    if (s === "done" || s === "cancelled") this.completedAt = new Date().toISOString();
     WindowManager.renderTabs();
-    if (s === "done" || s === "restored") {
+    const cancelBtn = this.q(".cancel-run");
+    if (cancelBtn) cancelBtn.style.display = (s === "running" || s === "live" || s === "demo") ? "" : "none";
+    if (s === "done" || s === "restored" || s === "cancelled") {
       this.q(".download-md").disabled = false;
       this.q(".download-json").disabled = false;
       this.q(".save-history").disabled = false;

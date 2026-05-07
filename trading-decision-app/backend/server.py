@@ -423,25 +423,43 @@ async def get_config() -> JSONResponse:
     providers_with_keys = [p["id"] for p in cat["providers"] if p["key_present"]]
 
     # Pick a sensible default provider:
-    #   1) DEFAULT_LLM_PROVIDER if set and valid
-    #   2) the first provider that has a key
-    #   3) openai
+    #   1) DEFAULT_LLM_PROVIDER env if set and valid
+    #   2) anthropic if it has a key (canonical default — Opus 4.7 / Sonnet 4.6)
+    #   3) the first provider that has a key
+    #   4) anthropic (even without key, so the UI shows the recommended default)
     valid_ids = {p["id"] for p in cat["providers"]}
     env_provider = (os.environ.get("DEFAULT_LLM_PROVIDER") or "").strip().lower()
     if env_provider and env_provider in valid_ids:
         default_provider = env_provider
+    elif "anthropic" in providers_with_keys:
+        default_provider = "anthropic"
     elif providers_with_keys:
         default_provider = providers_with_keys[0]
     else:
-        default_provider = "openai"
+        default_provider = "anthropic"
 
     # Find the provider's model lists for default selection
     provider_obj = next((p for p in cat["providers"] if p["id"] == default_provider), None)
     deep_models = (provider_obj or {}).get("models", {}).get("deep", [])
     quick_models = (provider_obj or {}).get("models", {}).get("quick", [])
 
-    default_deep = os.environ.get("DEFAULT_DEEP_LLM") or (deep_models[0]["value"] if deep_models else "")
-    default_quick = os.environ.get("DEFAULT_QUICK_LLM") or (quick_models[0]["value"] if quick_models else "")
+    # For anthropic prefer Opus 4.7 (deep) + Sonnet 4.6 (quick) when available;
+    # otherwise fall back to the first listed model.
+    def _pick(models, preferred):
+        for m in models:
+            if m.get("value") == preferred:
+                return preferred
+        return models[0]["value"] if models else ""
+
+    if default_provider == "anthropic":
+        fallback_deep = _pick(deep_models, "claude-opus-4-7")
+        fallback_quick = _pick(quick_models, "claude-sonnet-4-6")
+    else:
+        fallback_deep = deep_models[0]["value"] if deep_models else ""
+        fallback_quick = quick_models[0]["value"] if quick_models else ""
+
+    default_deep = os.environ.get("DEFAULT_DEEP_LLM") or fallback_deep
+    default_quick = os.environ.get("DEFAULT_QUICK_LLM") or fallback_quick
 
     return JSONResponse({
         "providers": cat["providers"],
@@ -449,10 +467,10 @@ async def get_config() -> JSONResponse:
             "llm_provider": default_provider,
             "deep_think_llm": default_deep,
             "quick_think_llm": default_quick,
-            "research_depth": int(os.environ.get("DEFAULT_RESEARCH_DEPTH", "1") or 1),
+            "research_depth": int(os.environ.get("DEFAULT_RESEARCH_DEPTH", "2") or 2),
             "output_language": os.environ.get("DEFAULT_OUTPUT_LANGUAGE", "Chinese"),
             "ticker": os.environ.get("DEFAULT_TICKER", "NVDA"),
-            "instrument_hint": os.environ.get("DEFAULT_INSTRUMENT", "stock"),
+            "instrument_hint": os.environ.get("DEFAULT_INSTRUMENT", ""),
             "risk_tolerance": int(os.environ.get("DEFAULT_RISK_TOLERANCE", "3") or 3),
         },
         "providers_with_keys": providers_with_keys,
