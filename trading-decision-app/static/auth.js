@@ -122,14 +122,27 @@
     isConfigured,
 
     async list() {
-      if (!client || !session) return [];
-      const { data, error } = await client
+      if (!client || !session) return { rows: [], error: null };
+      // Try the summary view first (cheaper — no run_state JSONB).
+      let { data, error } = await client
         .from("decisions_summary")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(500);
-      if (error) { console.error("[decisions] list", error); return []; }
-      return data || [];
+      if (error) {
+        console.warn("[decisions] view failed, falling back to decisions:", error.message);
+        // View missing / column drift — fall back to the base table so the
+        // user can at least see records.
+        const fb = await client
+          .from("decisions")
+          .select("id,ticker,trade_date,rating,status,started_at,completed_at,created_at,pinned,user_rating,user_note,params")
+          .order("created_at", { ascending: false })
+          .limit(500);
+        data = fb.data;
+        error = fb.error;
+        if (error) console.error("[decisions] list (fallback)", error);
+      }
+      return { rows: data || [], error: error ? (error.message || String(error)) : null };
     },
 
     async get(id) {
