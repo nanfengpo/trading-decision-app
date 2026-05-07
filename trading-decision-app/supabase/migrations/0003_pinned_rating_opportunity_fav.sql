@@ -34,6 +34,9 @@ alter table public.favorites
 
 
 -- ---- decisions_summary: surface new fields ------------------------------
+-- DROP first because CREATE OR REPLACE VIEW can only append columns, not
+-- reorder/rename them — and schema.sql defines an earlier shape.
+drop view if exists public.decisions_summary cascade;
 create or replace view public.decisions_summary as
     select id, user_id, ticker, trade_date, rating, status,
            started_at, completed_at, created_at, updated_at,

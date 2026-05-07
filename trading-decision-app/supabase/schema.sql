@@ -122,6 +122,9 @@ create trigger decisions_touch_updated_at
 -- ---- helpful view: decisions summary (history sidebar) ------------------
 -- The frontend list view doesn't need run_state (heavy). Selecting only
 -- the lightweight columns keeps initial loads fast.
+-- Drop first because CREATE OR REPLACE VIEW can only append columns,
+-- not reorder/rename them — later migrations (0003) change column order.
+drop view if exists public.decisions_summary cascade;
 create or replace view public.decisions_summary as
     select id, user_id, ticker, trade_date, rating, status,
            started_at, completed_at, created_at, updated_at,

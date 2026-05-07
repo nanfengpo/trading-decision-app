@@ -883,11 +883,15 @@ nav.tabs button.active .nav-badge { background: rgba(255,255,255,0.3); color: va
 .api-key-row .status { font-size: 11px; min-width: 24px; text-align: center; }
 
 .dataflow-row {
-  display: grid; grid-template-columns: 80px 1fr auto; gap: 8px;
+  display: grid; grid-template-columns: 112px minmax(0, 1fr) auto; gap: 10px;
+  align-items: center;
   padding: 5px 0; font-size: 13px; border-bottom: 1px solid var(--border);
 }
-.dataflow-row .cat { color: var(--accent); font-weight: 600; text-transform: uppercase; font-size: 11px; }
-.dataflow-row .vendor { color: var(--text-soft); }
+.dataflow-row .cat {
+  color: var(--accent); font-weight: 600; text-transform: uppercase; font-size: 11px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dataflow-row .vendor { color: var(--text-soft); min-width: 0; overflow-wrap: anywhere; }
 .dataflow-row .status { font-size: 11px; padding: 1px 8px; border-radius: 8px; }
 .dataflow-row .status.ok { background: var(--success); color: white; }
 .dataflow-row .status.miss { background: var(--bg-soft); color: var(--text-muted); }

@@ -73,34 +73,95 @@ app.add_middleware(
 
 
 # ---- optional Supabase JWT verification --------------------------------
-# When SUPABASE_JWT_SECRET is set, /api/analyze requires a valid JWT in
-# the Authorization: Bearer <token> header. This stops random scrapers
-# from burning your LLM tokens. When the env var is empty we leave the
-# endpoint open (useful for local dev / DEMO mode).
+# When SUPABASE_JWT_SECRET (legacy HS256) or SUPABASE_URL (new asymmetric
+# signing keys via JWKS) is set, /api/analyze requires a valid JWT in the
+# Authorization: Bearer <token> header. This stops random scrapers from
+# burning your LLM tokens. When neither is set we leave the endpoint open
+# (useful for local dev / DEMO mode).
+#
+# Supabase migrated all projects to asymmetric JWT signing keys (ES256 /
+# RS256) in 2024. The JWKS endpoint at <SUPABASE_URL>/auth/v1/.well-known/jwks.json
+# publishes the rotating public keys. We cache the fetched JWKS for 5min.
 
 _BEARER = HTTPBearer(auto_error=False)
+_JWKS_CACHE: Dict[str, Any] = {"keys": None, "fetched_at": 0.0}
+_JWKS_TTL_SEC = 300
+
+
+def _fetch_jwks() -> Optional[list]:
+    import time
+    base = (os.environ.get("SUPABASE_URL") or "").rstrip("/")
+    if not base:
+        return None
+    now = time.time()
+    if _JWKS_CACHE["keys"] is not None and (now - _JWKS_CACHE["fetched_at"]) < _JWKS_TTL_SEC:
+        return _JWKS_CACHE["keys"]
+    try:
+        import urllib.request
+        with urllib.request.urlopen(f"{base}/auth/v1/.well-known/jwks.json", timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        _JWKS_CACHE["keys"] = data.get("keys") or []
+        _JWKS_CACHE["fetched_at"] = now
+        return _JWKS_CACHE["keys"]
+    except Exception as e:
+        logger.warning("JWKS fetch failed: %s", e)
+        return None
 
 
 def _verify_jwt(creds: Optional[HTTPAuthorizationCredentials]) -> Optional[Dict[str, Any]]:
     secret = os.environ.get("SUPABASE_JWT_SECRET")
-    if not secret:
+    supabase_url = os.environ.get("SUPABASE_URL")
+    if not secret and not supabase_url:
         return None  # auth disabled
     if creds is None or creds.scheme.lower() != "bearer":
         raise HTTPException(status_code=401, detail="missing bearer token")
     try:
         import jwt  # type: ignore
+        from jwt import PyJWKClient  # noqa: F401  # ensure jwks support is available
     except ImportError:
-        logger.warning("PyJWT not installed but SUPABASE_JWT_SECRET set — auth disabled")
+        logger.warning("PyJWT not installed but SUPABASE auth env set — auth disabled")
         return None
+
+    token = creds.credentials
     try:
-        payload = jwt.decode(
-            creds.credentials, secret,
-            algorithms=["HS256"], audience="authenticated",
-            options={"verify_aud": True},
-        )
-        return payload
+        header = jwt.get_unverified_header(token)
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"invalid token: {e}")
+    alg = (header.get("alg") or "").upper()
+
+    last_err: Optional[str] = None
+
+    # Path 1: asymmetric signing (ES256 / RS256) via JWKS — current Supabase default.
+    if alg in ("ES256", "RS256", "EDDSA"):
+        keys = _fetch_jwks() or []
+        kid = header.get("kid")
+        matching = [k for k in keys if not kid or k.get("kid") == kid]
+        for jwk_entry in matching or keys:
+            try:
+                key_obj = jwt.PyJWK(jwk_entry).key
+                payload = jwt.decode(
+                    token, key_obj,
+                    algorithms=[alg], audience="authenticated",
+                    options={"verify_aud": True},
+                )
+                return payload
+            except Exception as e:
+                last_err = str(e)
+                continue
+
+    # Path 2: legacy HS256 with shared secret.
+    if alg == "HS256" and secret:
+        try:
+            payload = jwt.decode(
+                token, secret,
+                algorithms=["HS256"], audience="authenticated",
+                options={"verify_aud": True},
+            )
+            return payload
+        except Exception as e:
+            last_err = str(e)
+
+    raise HTTPException(status_code=401, detail=f"invalid token: {last_err or alg + ' not supported'}")
 
 
 async def maybe_user(request: Request) -> Optional[Dict[str, Any]]:
