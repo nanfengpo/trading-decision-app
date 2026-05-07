@@ -23,7 +23,15 @@ function escapeHtml(s) {
 
 function mdLite(text) {
   if (!text) return "";
-  let out = escapeHtml(text);
+  // Some upstream LLMs (especially when forced through a JSON-mode wrapper)
+  // emit literal "\n" / "\t" / '\"' instead of actual control chars. Unescape
+  // those before HTML-escaping so paragraph breaks render correctly.
+  let out = String(text)
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "\t")
+    .replace(/\\"/g, '"');
+  out = escapeHtml(out);
   out = out.replace(/^####\s+(.+)$/gm, "<h4>$1</h4>");
   out = out.replace(/^###\s+(.+)$/gm, "<h3>$1</h3>");
   out = out.replace(/^##\s+(.+)$/gm, "<h2>$1</h2>");
@@ -1053,11 +1061,13 @@ class DecisionWindow {
           <div class="reasons">${(m.reasons || []).map(r => `<span class="reason">${r}</span>`).join("")}</div>
           <details>
             <summary>展开操作细节</summary>
-            <p><strong>怎么做：</strong>${m.how || ""}</p>
-            <table class="params-table">${(m.params || []).map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("")}</table>
-            ${m.pros ? `<p><strong>好处：</strong></p><ul>${m.pros.map(x => `<li>${x}</li>`).join("")}</ul>` : ""}
-            ${m.cons ? `<p><strong>代价：</strong></p><ul>${m.cons.map(x => `<li>${x}</li>`).join("")}</ul>` : ""}
-            ${m.example ? `<p><strong>示例：</strong>${m.example}</p>` : ""}
+            ${m.concrete_how
+              ? `<p><strong>针对当前标的的具体操作：</strong>${escapeHtml(m.concrete_how)}</p>`
+              : `<p><strong>怎么做：</strong>${escapeHtml(m.how || "")}</p>`}
+            <table class="params-table">${(m.concrete_params || m.params || []).map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(String(v))}</td></tr>`).join("")}</table>
+            ${m.pros ? `<p><strong>好处：</strong></p><ul>${m.pros.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}
+            ${m.cons ? `<p><strong>代价：</strong></p><ul>${m.cons.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}
+            ${m.concrete_how ? "" : (m.example ? `<p class="muted" style="font-size:11px;"><strong>通用示例：</strong>${escapeHtml(m.example)}</p>` : "")}
           </details>
         </div>
         <div class="score"><span class="num">${m.score}</span><span>匹配分</span></div>
