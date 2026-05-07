@@ -150,8 +150,14 @@ add_secret SUPABASE_URL          "$SECRETS_SUPABASE_URL"
 add_secret SUPABASE_ANON_KEY     "$SECRETS_SUPABASE_ANON_KEY"
 add_secret SUPABASE_JWT_SECRET   "$SECRETS_SUPABASE_JWT_SECRET"
 
-# Always-derived secrets
-add_secret CORS_ORIGINS          "https://${PAGES_DOMAIN}"
+# CORS_ORIGINS is intentionally NOT auto-set on every redeploy — once you
+# bind a custom domain (or have multi-origin dev/preview/prod), letting
+# the script clobber it back to "<app>.pages.dev" silently breaks CORS.
+# Set it on first launch (--first-time) or pass CORS_ORIGINS explicitly.
+if [ "$REDEPLOY" -eq 0 ] || [ -n "${CORS_ORIGINS:-}" ]; then
+    cors_value="${CORS_ORIGINS:-https://${PAGES_DOMAIN}}"
+    add_secret CORS_ORIGINS "$cors_value"
+fi
 add_secret PUBLIC_API_BASE_URL   "https://${APP_NAME}.fly.dev"
 
 if [ "${#SECRETS_ARGS[@]}" -eq 0 ]; then
