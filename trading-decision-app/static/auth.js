@@ -93,6 +93,25 @@
       notify();
     },
 
+    /**
+     * Change the password for the current signed-in user.
+     * Verifies the current password first by re-signing-in (Supabase doesn't
+     * require it, but checking blocks drive-by changes on an unlocked machine).
+     */
+    async updatePassword(currentPassword, newPassword) {
+      if (!isConfigured()) throw new Error("Supabase 未配置");
+      if (!session?.user?.email) throw new Error("未登录");
+      if (!newPassword || newPassword.length < 6) throw new Error("新密码至少 6 位");
+      // Step 1: verify the current password by attempting a re-auth.
+      const { error: verifyErr } = await client.auth.signInWithPassword({
+        email: session.user.email, password: currentPassword,
+      });
+      if (verifyErr) throw new Error("当前密码不正确");
+      // Step 2: update.
+      const { error } = await client.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+    },
+
     rawClient() { return client; },
   };
 

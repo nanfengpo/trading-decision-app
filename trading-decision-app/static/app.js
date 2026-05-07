@@ -2318,12 +2318,66 @@ const Profile = {
   async renderAll() {
     await Promise.all([
       this.renderInfo(),
+      this.renderPasswordChange(),
       this.renderUsage(),
       this.renderDataKeys(),
       this.renderLlmKeys(),
       this.renderPrefs(),
       this.fetchDataflows(),
     ]);
+  },
+
+  // ────────────────────────────────────────────── 资料 (修改密码)
+  renderPasswordChange() {
+    const el = document.getElementById("profile-password");
+    if (!el) return;
+    if (!window.Auth || !window.Auth.isSignedIn()) {
+      el.innerHTML = `<div class="muted" style="padding:12px 0;">登录后可修改密码。</div>`;
+      return;
+    }
+    el.innerHTML = `
+      <div class="pwd-form" style="display:grid; gap:8px; max-width:360px;">
+        <label style="font-size:12px;">当前密码
+          <input type="password" id="pwd-current" autocomplete="current-password" />
+        </label>
+        <label style="font-size:12px;">新密码（至少 6 位）
+          <input type="password" id="pwd-new" autocomplete="new-password" />
+        </label>
+        <label style="font-size:12px;">确认新密码
+          <input type="password" id="pwd-confirm" autocomplete="new-password" />
+        </label>
+        <div style="display:flex; gap:8px; align-items:center; margin-top:4px;">
+          <button class="btn primary small" id="pwd-submit">更新密码</button>
+          <span class="muted" id="pwd-status" style="font-size:12px;"></span>
+        </div>
+      </div>
+    `;
+    document.getElementById("pwd-submit").addEventListener("click", async () => {
+      const cur  = document.getElementById("pwd-current").value;
+      const nw   = document.getElementById("pwd-new").value;
+      const conf = document.getElementById("pwd-confirm").value;
+      const status = document.getElementById("pwd-status");
+      const btn = document.getElementById("pwd-submit");
+      status.style.color = "";
+      if (!cur)               { status.style.color = "var(--danger)"; status.textContent = "请输入当前密码"; return; }
+      if (nw.length < 6)      { status.style.color = "var(--danger)"; status.textContent = "新密码至少 6 位"; return; }
+      if (nw !== conf)        { status.style.color = "var(--danger)"; status.textContent = "两次新密码不一致"; return; }
+      if (nw === cur)         { status.style.color = "var(--danger)"; status.textContent = "新密码不能与当前密码相同"; return; }
+      btn.disabled = true; status.textContent = "更新中…";
+      try {
+        await window.Auth.updatePassword(cur, nw);
+        status.style.color = "var(--success)"; status.textContent = "✓ 已更新";
+        document.getElementById("pwd-current").value = "";
+        document.getElementById("pwd-new").value = "";
+        document.getElementById("pwd-confirm").value = "";
+      } catch (e) {
+        status.style.color = "var(--danger)";
+        status.textContent = `失败：${e.message || e}`;
+      } finally {
+        btn.disabled = false;
+        setTimeout(() => { if (status.textContent.startsWith("✓")) status.textContent = ""; }, 3000);
+      }
+    });
   },
 
   // ────────────────────────────────────────────── 资料 (info)
