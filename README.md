@@ -38,11 +38,16 @@ trading-strategy-system/
 │   ├── setup.sh               首次安装
 │   ├── upgrade-tradingagents.sh  上游同步 + 重放 patches
 │   ├── dev.sh                 本地启动后端
+│   ├── deploy-fly.sh          一键部署到 Fly.io（含 secrets + 健康检查）
 │   └── check-config.sh        诊断 .env / Supabase / 数据源
-├── patches/                   ← TradingAgents 本地补丁系列
+├── patches/                   ← TradingAgents 本地补丁系列（7 个 v6-v10）
 │   ├── 0001-add-kimi-provider.patch
 │   ├── 0002-premium-dataflows-bridge.patch
 │   ├── 0003-premium-bridge-expand-detail.patch
+│   ├── 0004-yfinance-retry-broader.patch
+│   ├── 0005-prompt-compaction.patch
+│   ├── 0006-report-schemas-foundation.patch
+│   ├── 0007-parallel-analysts.patch
 │   └── apply-patches.sh
 ├── trading-decision-app/      ← 我们的应用
 │   ├── backend/               FastAPI + 多智能体 wrapper

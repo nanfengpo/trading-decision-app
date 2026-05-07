@@ -78,26 +78,60 @@ fly auth signup        # 没账号
 fly auth login         # 已有账号
 ```
 
-### 3.2 创建 app + 设置 secrets
+### 3.2 创建 app + 设置 secrets + 首次部署 — 一键脚本
 
-从**仓库根目录**（不是 `trading-decision-app/` 里面）：
+**推荐路径**：用仓库自带的 [`scripts/deploy-fly.sh`](../scripts/deploy-fly.sh) 一条龙搞定 — 它会自动：① 验证 flyctl 登录态和 region 合法性，② `fly launch` 创建 app（如果还没建过），③ 把所有非空 secret 一次性 set，④ `fly deploy` 推镜像，⑤ curl `/health` 验证。
 
 ```bash
-# 创建 app（不立刻部署）。app 名字要全球唯一
+cd <repo-root>          # 一定要在仓库根目录跑
+
+# 1) 把 keys 当成环境变量临时导出（不会进 git）
+export DEEPSEEK_API_KEY="sk-..."
+export OPENAI_API_KEY="sk-..."                # 至少配一个 LLM key 即可
+export SUPABASE_URL="https://xxxxx.supabase.co"
+export SUPABASE_ANON_KEY="eyJhbGc..."
+export SUPABASE_JWT_SECRET="<step 2.4 的 JWT Secret>"
+# 可选: FINNHUB_API_KEY, POLYGON_API_KEY, ALPHA_VANTAGE_API_KEY, FMP_API_KEY,
+#       ANTHROPIC_API_KEY, GOOGLE_API_KEY, DASHSCOPE_API_KEY, MOONSHOT_API_KEY,
+#       ZHIPU_API_KEY
+
+# 2) 跑脚本
+./scripts/deploy-fly.sh
+```
+
+App 名默认是 `trading-forge`，region 默认是 `sjc`（美西，离 OpenAI/Anthropic 服务器最近）。要改：
+
+```bash
+FLY_APP_NAME=my-name FLY_REGION=hkg ./scripts/deploy-fly.sh
+```
+
+之后日常重新部署（不再设 secret）：
+
+```bash
+./scripts/deploy-fly.sh --redeploy
+```
+
+成功标志：终端最后输出 `✓ Backend deployed to https://trading-forge.fly.dev`，访问 `https://trading-forge.fly.dev/health` 返回 `{"status":"ok"}`。
+
+### 3.2-bis 手动等价命令（不想用脚本时）
+
+```bash
+# 创建 app（不立刻部署）
 fly launch --no-deploy --copy-config \
   --config trading-decision-app/fly.toml \
   --dockerfile trading-decision-app/Dockerfile \
-  --name <your-app-name>
+  --name trading-forge \
+  --region sjc
 
-# 配置所有 secrets。这些不会被 commit，只存在 Fly 里。
-fly secrets set \
-  OPENAI_API_KEY=sk-... \
-  DEEPSEEK_API_KEY=sk-... \
+# 配置 secrets
+fly secrets set -a trading-forge \
+  OPENAI_API_KEY="sk-..." \
+  DEEPSEEK_API_KEY="sk-..." \
   SUPABASE_JWT_SECRET="<step 2.4 的 JWT Secret>" \
   SUPABASE_URL="<step 2.4 的 Project URL>" \
   SUPABASE_ANON_KEY="<step 2.4 的 anon key>" \
-  CORS_ORIGINS="https://<your-app>.pages.dev" \
-  PUBLIC_API_BASE_URL="https://<your-app-name>.fly.dev"
+  CORS_ORIGINS="https://trading-forge.pages.dev" \
+  PUBLIC_API_BASE_URL="https://trading-forge.fly.dev"
 ```
 
 ### 3.3 首次部署
@@ -107,13 +141,15 @@ fly deploy --config trading-decision-app/fly.toml \
            --dockerfile trading-decision-app/Dockerfile
 ```
 
-部署成功后访问 `https://<your-app-name>.fly.dev/health` 应返回 `{"status":"ok"}`。
+部署成功后访问 `https://trading-forge.fly.dev/health` 应返回 `{"status":"ok"}`。
+
+> 注：用 `scripts/deploy-fly.sh` 的话这一步**已经包含**在脚本里，不用再单独跑。
 
 ### 3.4 配置 GitHub Actions 自动部署（可选）
 
 ```bash
 # 生成只能部署该 app 的 token
-fly tokens create deploy
+fly tokens create deploy -a trading-forge
 # 把输出的 token 加到 GitHub: Settings → Secrets → New repository secret
 #   Name:  FLY_API_TOKEN
 #   Value: <刚才输出的 token>
@@ -138,14 +174,14 @@ fly tokens create deploy
 
 | 变量 | 值 |
 |---|---|
-| `PUBLIC_API_BASE_URL` | `https://<your-app-name>.fly.dev` |
+| `PUBLIC_API_BASE_URL` | `https://trading-forge.fly.dev` |
 | `SUPABASE_URL` | `https://xxxxx.supabase.co` |
 | `SUPABASE_ANON_KEY` | `eyJhbGc...` |
 | `AUTH_REQUIRED` | `true` |
 
 ### 4.3 触发部署
 
-点 **Save and Deploy**。第一次构建约 1 分钟。完成后访问 `https://<your-app>.pages.dev`。
+点 **Save and Deploy**。第一次构建约 1 分钟。完成后访问 `https://trading-forge.pages.dev`（如果 Pages 项目名也叫 `trading-forge`；按你实际命名）。
 
 ### 4.4 自定义域名（可选）
 

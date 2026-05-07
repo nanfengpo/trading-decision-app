@@ -1,53 +1,36 @@
-# fly.toml — Fly.io deployment for the backend.
-# Usage:
-#   1. Install flyctl + login (`fly auth signup` / `fly auth login`)
-#   2. From the REPO ROOT (not this directory):
-#        fly launch --no-deploy --copy-config --dockerfile trading-decision-app/Dockerfile
-#      (or use `fly deploy --config trading-decision-app/fly.toml --dockerfile trading-decision-app/Dockerfile`)
-#   3. Set secrets:
-#        fly secrets set OPENAI_API_KEY=sk-... DEEPSEEK_API_KEY=sk-... \
-#          SUPABASE_JWT_SECRET=... CORS_ORIGINS=https://your.pages.dev
-#   4. fly deploy
+# fly.toml app configuration file generated for trading-forge on 2026-05-07T16:47:24+08:00
 #
-# Notes
-#   * SSE works on Fly out of the box (HTTP/1.1 keepalive).
-#   * App needs ~512 MB RAM minimum once TradingAgents + deps are loaded.
-#   * Rolling deploy with min_machines_running=1 keeps an SSE-friendly host warm.
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
-app = "trading-decision-app"        # change to your unique name
-primary_region = "sjc"               # closest to your users / LLM provider
-kill_signal = "SIGINT"
-kill_timeout = "30s"
+app = 'trading-forge'
+primary_region = 'sjc'
+kill_signal = 'SIGINT'
+kill_timeout = '30s'
 
 [build]
-  # When deploying from the repo root, Fly uses ../Dockerfile (set via CLI).
-  dockerfile = "Dockerfile"
+  dockerfile = 'Dockerfile'
 
 [env]
-  PORT = "8000"
-  PYTHONUNBUFFERED = "1"
-  # Override via `fly secrets set` for the rest:
-  #   OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY, DEEPSEEK_API_KEY,
-  #   DASHSCOPE_API_KEY, MOONSHOT_API_KEY, ZHIPU_API_KEY,
-  #   SUPABASE_JWT_SECRET, SUPABASE_URL, SUPABASE_ANON_KEY,
-  #   CORS_ORIGINS, PUBLIC_API_BASE_URL, TRANSLATION_PROVIDER
+  PORT = '8000'
+  PYTHONUNBUFFERED = '1'
 
 [http_service]
   internal_port = 8000
   force_https = true
-  auto_stop_machines = "off"          # SSE doesn't like cold-starts mid-stream
+  auto_stop_machines = 'off'
   auto_start_machines = true
   min_machines_running = 1
-  processes = ["app"]
+  processes = ['app']
 
   [[http_service.checks]]
-    grace_period = "30s"
-    interval = "30s"
-    method = "GET"
-    timeout = "10s"
-    path = "/health"
+    interval = '30s'
+    timeout = '10s'
+    grace_period = '30s'
+    method = 'GET'
+    path = '/health'
 
 [[vm]]
-  memory_mb = 1024
+  cpu_kind = 'shared'
   cpus = 1
-  cpu_kind = "shared"
+  memory_mb = 1024

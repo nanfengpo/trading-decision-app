@@ -21,7 +21,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY trading-decision-app/requirements.txt /tmp/req-app.txt
 COPY TradingAgents/requirements.txt        /tmp/req-ta.txt
 
-RUN pip install --upgrade pip && \
+# Strip TradingAgents' self-install line (a lone "." that requires setup.py at cwd);
+# we mount the source via PYTHONPATH instead so editable install isn't needed.
+RUN sed -i -E '/^\s*\.?\s*$|^\s*-e\s+\.\s*$/d' /tmp/req-ta.txt && \
+    pip install --upgrade pip && \
     pip install -r /tmp/req-app.txt && \
     pip install -r /tmp/req-ta.txt && \
     pip install pyjwt cryptography

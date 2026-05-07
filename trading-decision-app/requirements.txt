@@ -3,6 +3,9 @@ fastapi>=0.110
 uvicorn[standard]>=0.27
 python-dotenv>=1.0
 
+# --- HTTP client (dataflows: finnhub_pro / polygon_io / alpha_vantage / fmp) ---
+requests>=2.31
+
 # --- translation layer (uses OpenAI-compatible API for any of:
 #     OpenAI / DeepSeek / Qwen / GLM / Kimi) ---
 openai>=1.40
