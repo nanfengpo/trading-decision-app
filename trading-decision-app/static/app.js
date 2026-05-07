@@ -837,10 +837,11 @@ class DecisionWindow {
         this.setStatusText("分析完成 ✔");
         this.markStatus("done");
         if (this.es) { this.es.close(); this.es = null; }
-        // auto-save to history (Supabase if signed in, else localStorage)
-        saveHistorySafely(this);
-        // Persist granular usage_events to Supabase (RLS keeps per-user)
-        this._flushUsageEvents().catch(e => console.warn("usage flush", e));
+        // Save decision FIRST so usage_events.decision_id FK has its target;
+        // otherwise the FK constraint trips and tokens are never recorded.
+        saveHistorySafely(this)
+          .then(() => this._flushUsageEvents())
+          .catch(e => console.warn("post-complete persistence", e));
         break;
       case "error":
         this.setStatusText(`错误：${evt.message}`);
