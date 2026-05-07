@@ -71,6 +71,7 @@ def build_analyst_subgraph(
     tool_node: ToolNode,
     delete_node: Callable,
     condition_fn: Callable,
+    analyst_type: str,
 ):
     """Wrap one analyst's loop into a compiled, message-isolated subgraph.
 
@@ -82,8 +83,16 @@ def build_analyst_subgraph(
     sub.add_node("tools", tool_node)
     sub.add_node("clear", delete_node)
 
+    # The shared condition_fn was designed for the sequential graph and
+    # returns sequential node names (e.g. "tools_market", "Msg Clear Market").
+    # Map those back to this subgraph's local node names.
+    path_map = {
+        f"tools_{analyst_type}":              "tools",
+        f"Msg Clear {analyst_type.capitalize()}": "clear",
+    }
+
     sub.add_edge(START, "analyst")
-    sub.add_conditional_edges("analyst", condition_fn, ["tools", "clear"])
+    sub.add_conditional_edges("analyst", condition_fn, path_map)
     sub.add_edge("tools", "analyst")
     sub.add_edge("clear", END)
 
@@ -164,6 +173,7 @@ def wire_parallel_analysts(
             tool_nodes[atype],
             delete_nodes[atype],
             getattr(conditional_logic, f"should_continue_{atype}"),
+            atype,
         )
         isolated[atype] = make_isolated_node(atype, sub)
 
