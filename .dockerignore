@@ -1,0 +1,31 @@
+# Secrets — never bake into the image. Production env comes from Fly
+# secrets / Cloudflare Pages env vars, not from a packaged .env file.
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Local dev caches
+__pycache__/
+*.pyc
+.venv/
+venv/
+node_modules/
+.DS_Store
+
+# Git metadata
+.git/
+.gitignore
+
+# CI / editor / docs (image doesn't need them)
+.github/
+.vscode/
+.idea/
+docs/
+patches/
+scripts/
+
+# Build artefacts that aren't ours
+trading-decision-app/dist/
