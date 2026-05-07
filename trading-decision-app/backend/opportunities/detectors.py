@@ -235,16 +235,75 @@ class SocialTrendDetector(BaseDetector):
         return out
 
 
+# ============================================================ Market pulse (always-on heartbeat)
+
+class MarketPulseDetector(BaseDetector):
+    """Pulls BTC + ETH spot from Binance every cycle and emits an info-level
+    opportunity with the current price + 24h change. Deduped per hour so it
+    refreshes the panel without spamming. Ensures the 24h panel is never
+    empty even when no real wick/social signals fire."""
+
+    name = "market_pulse"
+    interval_sec = 1800  # 30 min — fresh enough, avoids API hammering
+
+    _SYMBOLS = [("BTCUSDT", "BTC-USD", "比特币"), ("ETHUSDT", "ETH-USD", "以太坊")]
+
+    def run(self) -> List[Opportunity]:
+        try:
+            import requests
+        except Exception:
+            return []
+        out: List[Opportunity] = []
+        bucket = int(time.time() // 3600)  # 1-hour dedup
+        for binance_sym, ticker, zh in self._SYMBOLS:
+            try:
+                r = requests.get(
+                    "https://api.binance.com/api/v3/ticker/24hr",
+                    params={"symbol": binance_sym},
+                    timeout=4,
+                )
+                r.raise_for_status()
+                d = r.json()
+                price = float(d.get("lastPrice", 0))
+                pct = float(d.get("priceChangePercent", 0))
+                vol = float(d.get("quoteVolume", 0))
+                if price <= 0:
+                    continue
+            except Exception as e:
+                logger.debug("market_pulse: %s failed: %s", binance_sym, e)
+                continue
+            arrow = "📈" if pct >= 0 else "📉"
+            sev = "high" if abs(pct) >= 4 else ("watch" if abs(pct) >= 1.5 else "info")
+            out.append(Opportunity(
+                id=_hid("pulse", ticker, str(bucket)),
+                source=self.name,
+                type="market_pulse",
+                ticker=ticker,
+                severity=sev,
+                headline=f"{arrow} {zh} 现价 ${price:,.0f} · 24h {pct:+.2f}%",
+                body=f"24h 成交额 ${vol/1e9:.2f}B。{('波动放大' if abs(pct) >= 3 else '正常波动')}。来源：Binance 现货。",
+                payload={"price": price, "pct_24h": pct, "volume_24h": vol},
+                suggested_strategies=(
+                    STRAT["btc_wick_buy"] if pct <= -3 else
+                    STRAT["btc_wick_sell"] if pct >= 4 else
+                    ["dca", "grid", "mean_reversion"]
+                ),
+                expires_at=(datetime.now(timezone.utc) + timedelta(hours=2)).isoformat(),
+            ))
+        return out
+
+
 # ============================================================ default set
 
 def default_detectors() -> List[BaseDetector]:
-    # Default: only real-data detectors. Set OPPS_DETECTORS=demo,... to opt
+    # Default: real-data detectors only. Set OPPS_DETECTORS=demo,... to opt
     # back into the scripted samples for screenshots / offline demos.
-    enabled = (os.environ.get("OPPS_DETECTORS", "btc_wick,social_trend") or "").lower()
+    enabled = (os.environ.get("OPPS_DETECTORS", "market_pulse,btc_wick,social_trend") or "").lower()
     enabled_set = {x.strip() for x in enabled.split(",") if x.strip()}
     out: List[BaseDetector] = []
-    if "demo" in enabled_set:        out.append(DemoDetector())
-    if "btc_wick" in enabled_set:    out.append(BTCWickDetector())
-    if "iv_spike" in enabled_set:    out.append(IVSpikeDetector())
-    if "social_trend" in enabled_set: out.append(SocialTrendDetector())
+    if "demo" in enabled_set:          out.append(DemoDetector())
+    if "market_pulse" in enabled_set:  out.append(MarketPulseDetector())
+    if "btc_wick" in enabled_set:      out.append(BTCWickDetector())
+    if "iv_spike" in enabled_set:      out.append(IVSpikeDetector())
+    if "social_trend" in enabled_set:  out.append(SocialTrendDetector())
     return out

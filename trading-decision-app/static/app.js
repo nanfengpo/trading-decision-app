@@ -1595,16 +1595,18 @@ const History = {
   },
 
   async refresh() {
+    this._loadError = null;
     if (this._useRemote()) {
-      const rows = await window.Decisions.list();
-      this.cache = rows.map(r => ({
+      const { rows, error } = await window.Decisions.list();
+      this._loadError = error;
+      this.cache = (rows || []).map(r => ({
         id: r.id, ticker: r.ticker, trade_date: r.trade_date,
         rating: r.rating, status: r.status,
         startedAt: r.started_at, completedAt: r.completed_at,
         pinned: !!r.pinned,
         user_rating: r.user_rating || 0,
         user_note: r.user_note || "",
-        params: { instrument_hint: r.instrument_hint },
+        params: { instrument_hint: r.instrument_hint || r.params?.instrument_hint },
         _remote: true,
       }));
     } else {
@@ -1746,9 +1748,13 @@ const History = {
   render() {
     if (!this.cache.length) {
       this.emptyEl.style.display = "block";
-      this.emptyEl.textContent = this._useRemote()
-        ? "云端无记录。完成一次分析后会自动保存。"
-        : "暂无记录。完成一次分析后会自动保存（仅当前浏览器；登录可云端同步）。";
+      if (this._loadError) {
+        this.emptyEl.innerHTML = `<span style="color:var(--danger);">⚠ 加载失败：${escapeHtml(this._loadError)}</span><br><span class="muted" style="font-size:11px;">检查 Supabase 项目里 <code>decisions</code> 表是否已创建（跑过 schema.sql + migrations 没？）</span>`;
+      } else {
+        this.emptyEl.textContent = this._useRemote()
+          ? "云端无记录。完成一次分析后会自动保存。"
+          : "暂无记录。完成一次分析后会自动保存（仅当前浏览器；登录可云端同步）。";
+      }
       this.listEl.innerHTML = "";
       return;
     }
@@ -1768,6 +1774,7 @@ const History = {
       const stars = e.user_rating || 0;
       const dir = this._direction(e.rating);
       const dirEmoji = { bull: "🟢", bear: "🔴", hold: "⚪" }[dir] || "";
+      const isFav = (typeof Favorites !== "undefined") && Favorites.isFavorited("decision", e.id);
       return `
         <li data-history-id="${e.id}" class="${e.pinned ? "pinned" : ""}">
           <span class="ticker">${dirEmoji} ${escapeHtml(e.ticker)}</span>
@@ -1776,6 +1783,7 @@ const History = {
           <span class="ts">${new Date(e.completedAt || e.startedAt).toLocaleString()}</span>
           <div class="row-line2">
             <button class="pin-btn ${e.pinned ? "on" : ""}" data-pin="${e.id}" title="${e.pinned ? "取消置顶" : "置顶"}">${e.pinned ? "📌" : "📍"}</button>
+            <button class="fav-btn ${isFav ? "on" : ""}" data-fav-decision="${e.id}" title="${isFav ? "取消收藏" : "收藏"}">${isFav ? "★" : "☆"}</button>
             <span class="stars-mini" data-rate-id="${e.id}">
               ${[1,2,3,4,5].map(n => `<span class="star ${stars >= n ? "on" : ""}" data-star="${n}">★</span>`).join("")}
             </span>
@@ -1799,7 +1807,9 @@ const History = {
     this.listEl.querySelectorAll("li[data-history-id]").forEach(li => {
       li.addEventListener("click", async ev => {
         if (ev.target.dataset.delete || ev.target.dataset.pin || ev.target.dataset.star
-            || ev.target.classList.contains("stars-mini") || ev.target.classList.contains("pin-btn")) return;
+            || ev.target.dataset.favDecision
+            || ev.target.classList.contains("stars-mini") || ev.target.classList.contains("pin-btn")
+            || ev.target.classList.contains("fav-btn")) return;
         const entry = await History.getEntry(li.dataset.historyId);
         if (!entry) return;
         document.querySelector('nav.tabs button[data-tab="decision"]').click();
@@ -1820,6 +1830,24 @@ const History = {
         const id = b.dataset.pin;
         const entry = this.cache.find(e => e.id === id);
         await this.setPinned(id, !(entry && entry.pinned));
+      });
+    });
+    // favorite toggle
+    this.listEl.querySelectorAll("[data-fav-decision]").forEach(b => {
+      b.addEventListener("click", async ev => {
+        ev.stopPropagation();
+        const id = b.dataset.favDecision;
+        const entry = this.cache.find(e => e.id === id);
+        if (!entry || typeof Favorites === "undefined") return;
+        await Favorites.toggle("decision", id, {
+          ticker: entry.ticker,
+          trade_date: entry.trade_date,
+          rating: entry.rating,
+        });
+        const isFav = Favorites.isFavorited("decision", id);
+        b.classList.toggle("on", isFav);
+        b.textContent = isFav ? "★" : "☆";
+        b.title = isFav ? "取消收藏" : "收藏";
       });
     });
     // star rate (with hover preview)
