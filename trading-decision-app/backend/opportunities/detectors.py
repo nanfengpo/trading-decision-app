@@ -238,7 +238,9 @@ class SocialTrendDetector(BaseDetector):
 # ============================================================ default set
 
 def default_detectors() -> List[BaseDetector]:
-    enabled = (os.environ.get("OPPS_DETECTORS", "demo,btc_wick,social_trend") or "").lower()
+    # Default: only real-data detectors. Set OPPS_DETECTORS=demo,... to opt
+    # back into the scripted samples for screenshots / offline demos.
+    enabled = (os.environ.get("OPPS_DETECTORS", "btc_wick,social_trend") or "").lower()
     enabled_set = {x.strip() for x in enabled.split(",") if x.strip()}
     out: List[BaseDetector] = []
     if "demo" in enabled_set:        out.append(DemoDetector())
