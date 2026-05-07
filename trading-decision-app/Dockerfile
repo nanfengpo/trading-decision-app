@@ -16,21 +16,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ---- Python deps ---------------------------------------------------------
-# Install our own + TradingAgents' requirements. We copy requirements first
-# so Docker layer cache stays warm across code edits.
+# App deps cached first (changes most frequently together with code).
 COPY trading-decision-app/requirements.txt /tmp/req-app.txt
-COPY TradingAgents/requirements.txt        /tmp/req-ta.txt
-
-# Strip TradingAgents' self-install line (a lone "." that requires setup.py at cwd);
-# we mount the source via PYTHONPATH instead so editable install isn't needed.
-RUN sed -i -E '/^\s*\.?\s*$|^\s*-e\s+\.\s*$/d' /tmp/req-ta.txt && \
-    pip install --upgrade pip && \
+RUN pip install --upgrade pip && \
     pip install -r /tmp/req-app.txt && \
-    pip install -r /tmp/req-ta.txt && \
     pip install pyjwt cryptography
 
-# ---- copy source ---------------------------------------------------------
+# TradingAgents declares its 21 deps (langchain-*, yfinance, stockstats,
+# langgraph, pandas, ...) in pyproject.toml — its requirements.txt is just
+# a lone "." pointing at it. We pip-install from the source tree directly
+# so all those transitive deps land in the image.
 COPY TradingAgents/             /app/TradingAgents/
+RUN pip install /app/TradingAgents
+
+# ---- copy app source -----------------------------------------------------
 COPY trading-decision-app/      /app/trading-decision-app/
 
 ENV PYTHONPATH=/app/TradingAgents:/app/trading-decision-app/backend
