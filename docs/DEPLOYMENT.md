@@ -44,8 +44,8 @@
 cd trading-strategy-system
 git init
 git add .
-git commit -m "Initial trading-decision-app v3"
-gh repo create trading-decision-app --public --source=. --push
+git commit -m "Initial trading-forge"
+gh repo create trading-forge --public --source=. --push
 # 或在网页 New Repo → 拷贝 git remote add 命令
 ```
 
