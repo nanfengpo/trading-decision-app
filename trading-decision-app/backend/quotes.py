@@ -42,11 +42,17 @@ _FUTURES_RE  = re.compile(r"^[A-Z]{1,3}=F$|^GC|^CL|^NG|^SI|^HG|^ZC", re.I)
 _FOREX_RE    = re.compile(r"^[A-Z]{6}=X$|^USD|^EUR|^GBP|^JPY|^CNY", re.I)
 _US_STOCK_RE = re.compile(r"^[A-Z]{1,5}$")
 
+# Bare crypto symbols typed without a USD suffix. Treat as crypto so a
+# user who imported "BTC" from history routes to Binance/CoinGecko.
+_CRYPTO_BARE = {"BTC","ETH","SOL","XRP","DOGE","ADA","MATIC","LINK","AVAX","DOT","BNB","TRX","SHIB","LTC","BCH","UNI","ATOM"}
+
 
 def detect_market(ticker: str) -> str:
     t = (ticker or "").strip().upper()
     if not t:
         return "other"
+    if t in _CRYPTO_BARE:
+        return "crypto"
     if _CRYPTO_RE.match(t) or t.endswith("USDT") or t.endswith("-USD"):
         return "crypto"
     if _HK_RE.match(t):
@@ -78,7 +84,9 @@ def _fetch_crypto(ticker: str) -> Dict[str, Any]:
     """Binance 24h ticker — symbol like BTCUSDT."""
     out = _empty_quote(ticker, "crypto")
     sym = ticker.upper().replace("-", "").replace("/", "")
-    if sym.endswith("USD"):
+    if sym in _CRYPTO_BARE:        # "BTC" → "BTCUSDT"
+        sym = sym + "USDT"
+    elif sym.endswith("USD"):
         sym = sym[:-3] + "USDT"
     try:
         r = requests.get(
