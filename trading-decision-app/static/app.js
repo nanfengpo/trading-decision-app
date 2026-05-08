@@ -2099,7 +2099,7 @@ const Watchlist = {
    * backfill — guarded by a localStorage flag so we don't nag).
    */
   async importFromHistory(silent = false) {
-    if (!window.History) return { added: 0, skipped: 0 };
+    if (typeof History === "undefined") return { added: 0, skipped: 0 };
     const seen = new Set(this.cache.map(e => (e.ticker || "").toUpperCase()));
     const toAdd = [];
     (History.cache || []).forEach(d => {
@@ -2148,7 +2148,7 @@ const Watchlist = {
     const flagKey = "tda:wl:autoImported";
     if (this._useRemote()
         && this.cache.length === 0
-        && (window.History?.cache || []).length > 0
+        && (typeof History !== "undefined" ? (History.cache || []).length : 0) > 0
         && !localStorage.getItem(flagKey)) {
       localStorage.setItem(flagKey, "1");
       try {
@@ -2331,7 +2331,9 @@ const Watchlist = {
   },
 
   _matchedDecisions(entry) {
-    return (window.History?.cache || [])
+    // NB: bare `History` — `window.History` is the browser's built-in
+    // History constructor (pushState/popState), not our app's data layer.
+    return (typeof History !== "undefined" ? History.cache || [] : [])
       .filter(d => (d.ticker || "").toUpperCase() === entry.ticker.toUpperCase())
       .sort((a, b) => new Date(b.completedAt || b.startedAt) - new Date(a.completedAt || a.startedAt));
   },
@@ -2388,9 +2390,9 @@ const Watchlist = {
     const latest = this._matchedDecisions(entry)[0];
     if (!latest) return;
     if (this._decisionFullCache[latest.id]) return;
-    if (!window.History) return;
+    if (typeof History === "undefined") return;
     try {
-      const full = await window.History.getEntry(latest.id);
+      const full = await History.getEntry(latest.id);
       if (full) {
         this._decisionFullCache[latest.id] = full;
         // Only re-render if the user is still looking at this asset.
