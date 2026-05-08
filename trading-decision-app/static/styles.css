@@ -1060,71 +1060,109 @@ footer { margin-top: 60px; padding-top: 24px; border-top: 1px solid var(--border
 }
 .watchlist-group-chip .count { font-size: 10px; opacity: 0.75; margin-left: 4px; }
 
-.watchlist-list-wrap {
+/* Sidebar layout: list on the left, detail on the right ----------------- */
+.watchlist-shell {
+  display: grid; grid-template-columns: 320px 1fr; gap: 16px;
+  align-items: start;
+}
+.watchlist-sidebar {
   background: var(--bg-card); border: 1px solid var(--border);
   border-radius: 10px; overflow: hidden;
+  max-height: calc(100vh - 240px); overflow-y: auto;
 }
 .watchlist-empty { padding: 28px 16px; text-align: center; color: var(--text-muted); font-size: 13px; }
 .watchlist-empty:empty { display: none; }
 .watchlist-list { list-style: none; margin: 0; padding: 0; }
 
-.watchlist-row, .watchlist-head-row {
-  display: flex; align-items: center; gap: 12px;
-  padding: 9px 14px; border-bottom: 1px solid var(--border);
+/* Compact sidebar row: ticker / price / pct (3 columns, no OHLC etc.) */
+.watchlist-row {
+  display: grid; grid-template-columns: 1fr auto auto;
+  gap: 8px; align-items: center;
+  padding: 10px 12px; border-bottom: 1px solid var(--border);
+  cursor: pointer; transition: background 0.1s;
 }
-.watchlist-head-row {
-  background: var(--bg-soft);
-  font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
-  color: var(--text-muted); font-weight: 600;
-}
-.watchlist-row { cursor: pointer; transition: background 0.1s; }
+.watchlist-row:last-child { border-bottom: none; }
 .watchlist-row:hover { background: var(--bg-soft); }
+.watchlist-row.selected {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-left: 3px solid var(--accent);
+  padding-left: 9px;
+}
+.wl-side-ticker  { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.wl-side-ticker .wl-name { display: block; font-size: 11px; color: var(--text-muted); font-weight: 400; margin-top: 1px; }
+.wl-side-price   { font-family: ui-monospace, monospace; font-size: 13px; text-align: right; }
+.wl-side-pct     { font-family: ui-monospace, monospace; font-size: 12px; font-weight: 600; text-align: right; min-width: 64px; }
+.wl-side-pct.up   { color: #2e7d32; }
+.wl-side-pct.down { color: #c0392b; }
 
-.wl-c-ticker  { flex: 0 0 130px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wl-c-ticker .wl-name { display: block; font-size: 11px; color: var(--text-muted); font-weight: 400; }
-.wl-c-price   { flex: 0 0 100px; font-family: ui-monospace, monospace; font-size: 13px; }
-.wl-c-pct     { flex: 0 0 80px;  font-family: ui-monospace, monospace; font-size: 13px; font-weight: 600; }
-.wl-c-pct.up   { color: #2e7d32; }
-.wl-c-pct.down { color: #c0392b; }
-.wl-c-ohlc    { flex: 0 0 200px; font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-muted); }
-.wl-c-vol     { flex: 0 0 110px; font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-muted); }
-.wl-c-cap     { flex: 0 0 90px;  font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-muted); }
-.wl-c-pe      { flex: 0 0 60px;  font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-muted); }
-.wl-c-act     { flex: 0 0 auto;  display: flex; gap: 4px; margin-left: auto; }
-.wl-c-act button {
-  background: none; border: none; cursor: pointer; padding: 4px 8px;
-  font-size: 13px; border-radius: 4px; color: var(--text-muted);
+/* Main detail panel ------------------------------------------------------ */
+.watchlist-main {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 18px 22px; min-height: 360px;
 }
-.wl-c-act button:hover { background: var(--bg-soft); color: var(--text); }
-.wl-c-act .run-btn {
-  background: var(--accent); color: white; padding: 4px 12px;
-  font-size: 12px; font-weight: 600; border-radius: 6px;
+.watchlist-main-empty {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 240px; color: var(--text-muted); font-size: 13px;
 }
-.wl-c-act .run-btn:hover { opacity: 0.85; background: var(--accent); color: white; }
+.wl-main-head {
+  display: flex; flex-wrap: wrap; align-items: baseline;
+  gap: 10px 16px; margin-bottom: 16px;
+}
+.wl-main-ticker { font-size: 22px; font-weight: 700; }
+.wl-main-name   { color: var(--text-muted); font-size: 14px; }
+.wl-main-price  { font-family: ui-monospace, monospace; font-size: 24px; font-weight: 600; }
+.wl-main-pct    { font-family: ui-monospace, monospace; font-size: 15px; font-weight: 600; }
+.wl-main-pct.up   { color: #2e7d32; }
+.wl-main-pct.down { color: #c0392b; }
+.wl-main-actions { margin-left: auto; display: flex; gap: 8px; }
 
-.watchlist-row.expanded { border-bottom-color: transparent; }
-.watchlist-row-expand {
-  padding: 12px 14px 16px; background: var(--bg-soft);
-  border-bottom: 1px solid var(--border); font-size: 13px;
+/* Quick stats grid: OHLC + 成交额 + 市值 + P/E */
+.wl-stats {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px 16px;
+  padding: 14px 16px; margin-bottom: 18px;
+  background: var(--bg-soft); border: 1px solid var(--border); border-radius: 8px;
+  font-size: 13px;
 }
-.watchlist-row-expand .recent-list {
-  list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px;
+.wl-stat-label { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px; }
+.wl-stat-value { font-family: ui-monospace, monospace; font-weight: 500; }
+
+/* Latest decision card */
+.wl-decision-block { margin-top: 14px; }
+.wl-decision-block h3 { margin: 0 0 8px; font-size: 14px; }
+.wl-decision-card {
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 14px 16px; cursor: pointer; transition: all 0.15s;
 }
-.watchlist-row-expand .recent-list li {
-  display: flex; gap: 10px; align-items: center; padding: 4px 0;
-  font-size: 12px; cursor: pointer; color: var(--text-soft);
+.wl-decision-card:hover { border-color: var(--accent); background: var(--bg-soft); }
+.wl-decision-meta {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  font-size: 12px; color: var(--text-muted);
+  margin-bottom: 8px;
 }
-.watchlist-row-expand .recent-list li:hover { color: var(--accent); }
-.watchlist-row-expand .recent-list li .pill {
-  font-size: 10px; padding: 1px 7px; border-radius: 999px; font-weight: 600;
+.wl-decision-rating { font-size: 11px; padding: 2px 10px; border-radius: 999px; font-weight: 600; color: white; }
+.wl-decision-summary {
+  font-size: 13px; line-height: 1.55; color: var(--text-soft);
+  max-height: 8em; overflow: hidden;
+  position: relative;
+}
+.wl-decision-summary::after {
+  content: ""; position: absolute; bottom: 0; left: 0; right: 0; height: 24px;
+  background: linear-gradient(transparent, var(--bg-card));
+}
+.wl-decision-history-link {
+  margin-top: 12px; font-size: 12px; color: var(--text-muted);
+}
+.wl-decision-history-link a { color: var(--accent); cursor: pointer; }
+.wl-decision-history-link a:hover { text-decoration: underline; }
+.wl-no-decision {
+  padding: 18px; border: 1px dashed var(--border); border-radius: 8px;
+  text-align: center; color: var(--text-muted); font-size: 13px;
 }
 
-@media (max-width: 1100px) {
-  .wl-c-ohlc, .wl-c-cap, .wl-c-pe { display: none; }
-}
-@media (max-width: 700px) {
-  .watchlist-row, .watchlist-head-row { flex-wrap: wrap; }
-  .wl-c-vol { display: none; }
+@media (max-width: 900px) {
+  .watchlist-shell { grid-template-columns: 1fr; }
+  .watchlist-sidebar { max-height: 320px; }
 }
 
 /* Strategy library "favorites only" chip */

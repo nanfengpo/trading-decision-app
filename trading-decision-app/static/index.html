@@ -267,9 +267,18 @@
     <!-- Group chips: built-in markets + custom groups -->
     <div class="watchlist-groups" id="watchlist-groups"></div>
 
-    <div class="watchlist-list-wrap">
-      <div class="watchlist-empty" id="watchlist-empty"></div>
-      <ul class="watchlist-list" id="watchlist-list"></ul>
+    <!-- Sidebar layout: left = compact ticker list,
+                        right = main detail panel for selected asset -->
+    <div class="watchlist-shell">
+      <aside class="watchlist-sidebar">
+        <div class="watchlist-empty" id="watchlist-empty"></div>
+        <ul class="watchlist-list" id="watchlist-list"></ul>
+      </aside>
+      <main class="watchlist-main" id="watchlist-main">
+        <div class="watchlist-main-empty" id="watchlist-main-empty">
+          ← 选择左侧任意标的查看实时行情和最新决策
+        </div>
+      </main>
     </div>
   </div>
 </section>
