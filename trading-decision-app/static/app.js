@@ -2308,6 +2308,24 @@ const HistoryPage = {
     this.backdropEl = document.getElementById("history-detail-backdrop");
     if (!this.listEl) return;
 
+    // Belt-and-suspenders against Chrome autofill: if the browser jammed
+    // an email-shaped value into the search box (despite readonly +
+    // autocomplete=new-password + decoy input), wipe it. Run repeatedly
+    // because Chrome sometimes fills late, and again on tab activation.
+    this._stompAutofill = () => {
+      if (this.searchEl && /@/.test(this.searchEl.value || "")) {
+        this.searchEl.value = "";
+        this.search = "";
+        this.render();
+      }
+    };
+    requestAnimationFrame(this._stompAutofill);
+    [100, 300, 800, 2000].forEach(ms => setTimeout(this._stompAutofill, ms));
+    // When user clicks the 历史 tab, give Chrome one more chance and stomp again
+    document.querySelector('nav.tabs button[data-tab="history"]')?.addEventListener("click", () => {
+      [50, 200].forEach(ms => setTimeout(this._stompAutofill, ms));
+    });
+
     this.searchEl.addEventListener("input", e => {
       this.search = e.target.value.trim().toLowerCase(); this.render();
     });
