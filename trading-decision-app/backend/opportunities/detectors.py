@@ -255,23 +255,59 @@ class MarketPulseDetector(BaseDetector):
             return []
         out: List[Opportunity] = []
         bucket = int(time.time() // 3600)  # 1-hour dedup
+
+        # Binance is geo-blocked from some Fly regions. Try CoinGecko first
+        # — it's free, no key, and works globally; one HTTP for both coins.
+        cg_data = None
+        try:
+            r = requests.get(
+                "https://api.coingecko.com/api/v3/coins/markets",
+                params={
+                    "vs_currency": "usd",
+                    "ids": "bitcoin,ethereum",
+                    "price_change_percentage": "24h",
+                },
+                timeout=5,
+            )
+            r.raise_for_status()
+            cg_data = {x["symbol"].upper(): x for x in (r.json() or [])}
+        except Exception as e:
+            logger.debug("market_pulse: coingecko failed: %s", e)
+
+        cg_lookup = {"BTCUSDT": "BTC", "ETHUSDT": "ETH"}
+
         for binance_sym, ticker, zh in self._SYMBOLS:
-            try:
-                r = requests.get(
-                    "https://api.binance.com/api/v3/ticker/24hr",
-                    params={"symbol": binance_sym},
-                    timeout=4,
-                )
-                r.raise_for_status()
-                d = r.json()
-                price = float(d.get("lastPrice", 0))
-                pct = float(d.get("priceChangePercent", 0))
-                vol = float(d.get("quoteVolume", 0))
-                if price <= 0:
+            price = pct = vol = 0.0
+            source = None
+
+            if cg_data and cg_lookup.get(binance_sym) in cg_data:
+                d = cg_data[cg_lookup[binance_sym]]
+                price = float(d.get("current_price") or 0)
+                pct = float(d.get("price_change_percentage_24h") or 0)
+                vol = float(d.get("total_volume") or 0)
+                source = "CoinGecko"
+
+            if price <= 0:
+                # Binance fallback
+                try:
+                    r = requests.get(
+                        "https://api.binance.com/api/v3/ticker/24hr",
+                        params={"symbol": binance_sym},
+                        timeout=4,
+                    )
+                    r.raise_for_status()
+                    d = r.json()
+                    price = float(d.get("lastPrice", 0))
+                    pct = float(d.get("priceChangePercent", 0))
+                    vol = float(d.get("quoteVolume", 0))
+                    source = "Binance"
+                except Exception as e:
+                    logger.debug("market_pulse: %s failed: %s", binance_sym, e)
                     continue
-            except Exception as e:
-                logger.debug("market_pulse: %s failed: %s", binance_sym, e)
+
+            if price <= 0:
                 continue
+
             arrow = "📈" if pct >= 0 else "📉"
             sev = "high" if abs(pct) >= 4 else ("watch" if abs(pct) >= 1.5 else "info")
             out.append(Opportunity(
@@ -281,7 +317,7 @@ class MarketPulseDetector(BaseDetector):
                 ticker=ticker,
                 severity=sev,
                 headline=f"{arrow} {zh} 现价 ${price:,.0f} · 24h {pct:+.2f}%",
-                body=f"24h 成交额 ${vol/1e9:.2f}B。{('波动放大' if abs(pct) >= 3 else '正常波动')}。来源：Binance 现货。",
+                body=f"24h 成交额 ${vol/1e9:.2f}B。{('波动放大' if abs(pct) >= 3 else '正常波动')}。来源：{source}。",
                 payload={"price": price, "pct_24h": pct, "volume_24h": vol},
                 suggested_strategies=(
                     STRAT["btc_wick_buy"] if pct <= -3 else
