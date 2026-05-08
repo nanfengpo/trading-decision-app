@@ -384,9 +384,18 @@
     </header>
 
     <div class="history-page-toolbar">
-      <input type="search" class="history-page-search" id="history-page-search"
-             name="hist-q" autocomplete="off" autocapitalize="off"
-             spellcheck="false" data-1p-ignore data-lpignore="true"
+      <!-- Decoy input: Chrome's autofill heuristic targets the FIRST text/email
+           input it sees in the form context. We give it a hidden dummy to
+           autofill instead, leaving the real search box untouched. -->
+      <input type="text" name="email-decoy" autocomplete="username"
+             tabindex="-1" aria-hidden="true"
+             style="position:absolute; left:-9999px; opacity:0; width:1px; height:1px;" />
+      <input type="text" class="history-page-search" id="history-page-search"
+             name="filter-history-search-input"
+             autocomplete="new-password" autocapitalize="off"
+             spellcheck="false" readonly
+             data-1p-ignore data-lpignore="true"
+             onfocus="this.removeAttribute('readonly'); this.removeAttribute('value');"
              placeholder="🔍 搜索代码 / 备注 / 决策内容…" />
       <div class="history-page-actions">
         <button class="btn secondary small" id="history-page-clear-filters">清空筛选</button>
