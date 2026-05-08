@@ -347,68 +347,10 @@
     </form>
   </div>
 
-  <!-- WORKSPACE: history sidebar + multiple windows -->
+  <!-- WORKSPACE: just the running decision windows.
+       History lives entirely in the dedicated 📜 历史 tab. -->
   <div class="decision-workspace">
-    <aside class="history-sidebar" id="history-sidebar">
-      <div class="history-head">
-        <span class="history-title">📜 历史决策</span>
-        <div style="display:flex; gap:4px;">
-          <button class="icon-btn small" id="history-toggle-filter" title="筛选 / 排序">⚙</button>
-          <button class="icon-btn small" id="history-clear" title="清空全部历史">🗑</button>
-        </div>
-      </div>
-
-      <div class="history-controls" id="history-controls" style="display:none;">
-        <div class="ctrl-row">
-          <label>排序</label>
-          <select id="history-sort">
-            <option value="time-desc">时间 ↓ 新→旧</option>
-            <option value="time-asc">时间 ↑ 旧→新</option>
-            <option value="rating-desc">星级 ↓ 高→低</option>
-            <option value="ticker">品种字母</option>
-          </select>
-        </div>
-        <div class="ctrl-row">
-          <label>建议</label>
-          <select id="history-filter-rating">
-            <option value="all">全部</option>
-            <option value="bull">🟢 多头 (Buy/Overweight)</option>
-            <option value="hold">⚪ 持有 (Hold)</option>
-            <option value="bear">🔴 空头 (Sell/Underweight)</option>
-          </select>
-        </div>
-        <div class="ctrl-row">
-          <label>品种</label>
-          <select id="history-filter-instrument">
-            <option value="all">全部</option>
-            <option value="stock">📈 股票</option>
-            <option value="etf">🧺 ETF</option>
-            <option value="crypto">₿ 加密</option>
-            <option value="commodity">🛢 商品</option>
-            <option value="forex">💱 外汇</option>
-          </select>
-        </div>
-        <div class="ctrl-row">
-          <label>评分</label>
-          <select id="history-filter-stars">
-            <option value="all">全部</option>
-            <option value="5">★★★★★ 仅 5 星</option>
-            <option value="4">★★★★☆ ≥ 4 星</option>
-            <option value="3">★★★☆☆ ≥ 3 星</option>
-            <option value="rated">有评分</option>
-            <option value="unrated">未评分</option>
-          </select>
-        </div>
-        <input type="text" class="search-box" id="history-search" placeholder="搜索代码 / 备注…" style="margin-top:6px; font-size:12px;">
-      </div>
-
-      <div class="history-empty muted" id="history-empty">
-        暂无记录。完成一次分析后会自动保存。
-      </div>
-      <ul class="history-list" id="history-list"></ul>
-    </aside>
-
-    <div class="windows-area">
+    <div class="windows-area" style="grid-column: 1 / -1;">
       <div class="window-tabs" id="window-tabs">
         <span class="muted" style="font-size:12px; padding:4px 8px;">尚未启动任何决策窗口</span>
       </div>

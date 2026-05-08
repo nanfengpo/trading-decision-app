@@ -1524,48 +1524,9 @@ const History = {
   LOCAL_MAX: 200,                   // bumped from 50 — pin/rate makes more entries valuable
   cache: [],
 
-  // UI state
-  sort: "time-desc",
-  filterDirection: "all",
-  filterInstrument: "all",
-  filterStars: "all",
-  search: "",
-
   async init() {
-    this.listEl = document.getElementById("history-list");
-    this.emptyEl = document.getElementById("history-empty");
-    this.controlsEl = document.getElementById("history-controls");
-
-    document.getElementById("history-clear").addEventListener("click", async () => {
-      if (!confirm("确定要清空所有历史决策？此操作无法撤销。")) return;
-      if (this._useRemote()) {
-        await window.Decisions.deleteAll();
-      } else {
-        localStorage.removeItem(this.LOCAL_KEY);
-      }
-      await this.refresh();
-    });
-    document.getElementById("history-toggle-filter").addEventListener("click", () => {
-      const open = this.controlsEl.style.display !== "none";
-      this.controlsEl.style.display = open ? "none" : "block";
-    });
-
-    document.getElementById("history-sort").addEventListener("change", e => {
-      this.sort = e.target.value; this.render();
-    });
-    document.getElementById("history-filter-rating").addEventListener("change", e => {
-      this.filterDirection = e.target.value; this.render();
-    });
-    document.getElementById("history-filter-instrument").addEventListener("change", e => {
-      this.filterInstrument = e.target.value; this.render();
-    });
-    document.getElementById("history-filter-stars").addEventListener("change", e => {
-      this.filterStars = e.target.value; this.render();
-    });
-    document.getElementById("history-search").addEventListener("input", e => {
-      this.search = e.target.value.trim().toLowerCase(); this.render();
-    });
-
+    // No more sidebar UI — History is now a pure data layer for HistoryPage.
+    // Keep the auth subscription so we refresh when sign-in state changes.
     if (window.Auth) window.Auth.onChange(() => this.refresh());
     await this.refresh();
   },
@@ -1638,7 +1599,6 @@ const History = {
         research_depth:  e.params?.research_depth,
       }));
     }
-    this.render();
     if (typeof HistoryPage !== "undefined") HistoryPage.render();
   },
 
@@ -1733,170 +1693,10 @@ const History = {
     await this.refresh();
   },
 
-  _filteredSorted() {
-    let items = [...this.cache];
-
-    // filters
-    if (this.filterDirection !== "all") {
-      items = items.filter(e => this._direction(e.rating) === this.filterDirection);
-    }
-    if (this.filterInstrument !== "all") {
-      items = items.filter(e => this._instrument(e) === this.filterInstrument);
-    }
-    if (this.filterStars !== "all") {
-      const f = this.filterStars;
-      if (f === "rated")        items = items.filter(e => (e.user_rating || 0) > 0);
-      else if (f === "unrated") items = items.filter(e => !(e.user_rating || 0));
-      else                       items = items.filter(e => (e.user_rating || 0) >= parseInt(f, 10));
-    }
-    if (this.search) {
-      const q = this.search;
-      items = items.filter(e =>
-        (e.ticker || "").toLowerCase().includes(q) ||
-        (e.user_note || "").toLowerCase().includes(q)
-      );
-    }
-
-    // sort — pinned always group first, then by selected sort
-    const cmp = (() => {
-      switch (this.sort) {
-        case "time-asc":   return (a, b) => new Date(a.completedAt || a.startedAt) - new Date(b.completedAt || b.startedAt);
-        case "rating-desc":return (a, b) => (b.user_rating || 0) - (a.user_rating || 0)
-                                             || new Date(b.completedAt || b.startedAt) - new Date(a.completedAt || a.startedAt);
-        case "ticker":     return (a, b) => (a.ticker || "").localeCompare(b.ticker || "");
-        default:           return (a, b) => new Date(b.completedAt || b.startedAt) - new Date(a.completedAt || a.startedAt);
-      }
-    })();
-    items.sort(cmp);
-
-    return items;
-  },
-
-  render() {
-    if (!this.cache.length) {
-      this.emptyEl.style.display = "block";
-      if (this._loadError) {
-        this.emptyEl.innerHTML = `<span style="color:var(--danger);">⚠ 加载失败：${escapeHtml(this._loadError)}</span><br><span class="muted" style="font-size:11px;">检查 Supabase 项目里 <code>decisions</code> 表是否已创建（跑过 schema.sql + migrations 没？）</span>`;
-      } else {
-        this.emptyEl.textContent = this._useRemote()
-          ? "云端无记录。完成一次分析后会自动保存。"
-          : "暂无记录。完成一次分析后会自动保存（仅当前浏览器；登录可云端同步）。";
-      }
-      this.listEl.innerHTML = "";
-      return;
-    }
-    this.emptyEl.style.display = "none";
-
-    const items = this._filteredSorted();
-    if (!items.length) {
-      this.listEl.innerHTML = `<li class="muted" style="padding:14px; cursor:default;">无匹配记录。调整筛选条件。</li>`;
-      return;
-    }
-
-    // Pinned group on top, regular group below
-    const pinned = items.filter(x => x.pinned);
-    const rest = items.filter(x => !x.pinned);
-
-    const renderRow = (e) => {
-      const stars = e.user_rating || 0;
-      const dir = this._direction(e.rating);
-      const dirEmoji = { bull: "🟢", bear: "🔴", hold: "⚪" }[dir] || "";
-      const isFav = (typeof Favorites !== "undefined") && Favorites.isFavorited("decision", e.id);
-      return `
-        <li data-history-id="${e.id}" class="${e.pinned ? "pinned" : ""}">
-          <span class="ticker">${dirEmoji} ${escapeHtml(e.ticker)}</span>
-          <span class="rating-pill ${e.rating || ""}">${escapeHtml(e.rating || "—")}</span>
-          <span class="date">${escapeHtml(e.trade_date)}</span>
-          <span class="ts">${new Date(e.completedAt || e.startedAt).toLocaleString()}</span>
-          <div class="row-line2">
-            <button class="pin-btn ${e.pinned ? "on" : ""}" data-pin="${e.id}" title="${e.pinned ? "取消置顶" : "置顶"}">${e.pinned ? "📌" : "📍"}</button>
-            <button class="fav-btn ${isFav ? "on" : ""}" data-fav-decision="${e.id}" title="${isFav ? "取消收藏" : "收藏"}">${isFav ? "★" : "☆"}</button>
-            <span class="stars-mini" data-rate-id="${e.id}">
-              ${[1,2,3,4,5].map(n => `<span class="star ${stars >= n ? "on" : ""}" data-star="${n}">★</span>`).join("")}
-            </span>
-            <button class="delete-btn" data-delete="${e.id}" style="margin-left:auto;">删除</button>
-          </div>
-        </li>`;
-    };
-
-    let html = "";
-    if (pinned.length) {
-      html += `<li class="group-divider">📌 已置顶 (${pinned.length})</li>`;
-      html += pinned.map(renderRow).join("");
-    }
-    if (rest.length) {
-      if (pinned.length) html += `<li class="group-divider">其他 (${rest.length})</li>`;
-      html += rest.map(renderRow).join("");
-    }
-    this.listEl.innerHTML = html;
-
-    // open entry
-    this.listEl.querySelectorAll("li[data-history-id]").forEach(li => {
-      li.addEventListener("click", async ev => {
-        if (ev.target.dataset.delete || ev.target.dataset.pin || ev.target.dataset.star
-            || ev.target.dataset.favDecision
-            || ev.target.classList.contains("stars-mini") || ev.target.classList.contains("pin-btn")
-            || ev.target.classList.contains("fav-btn")) return;
-        const entry = await History.getEntry(li.dataset.historyId);
-        if (!entry) return;
-        document.querySelector('nav.tabs button[data-tab="decision"]').click();
-        WindowManager.openHistorical(entry);
-      });
-    });
-    // delete
-    this.listEl.querySelectorAll("[data-delete]").forEach(b => {
-      b.addEventListener("click", async ev => {
-        ev.stopPropagation();
-        await History.delete(b.dataset.delete);
-      });
-    });
-    // pin toggle
-    this.listEl.querySelectorAll("[data-pin]").forEach(b => {
-      b.addEventListener("click", async ev => {
-        ev.stopPropagation();
-        const id = b.dataset.pin;
-        const entry = this.cache.find(e => e.id === id);
-        await this.setPinned(id, !(entry && entry.pinned));
-      });
-    });
-    // favorite toggle
-    this.listEl.querySelectorAll("[data-fav-decision]").forEach(b => {
-      b.addEventListener("click", async ev => {
-        ev.stopPropagation();
-        const id = b.dataset.favDecision;
-        const entry = this.cache.find(e => e.id === id);
-        if (!entry || typeof Favorites === "undefined") return;
-        await Favorites.toggle("decision", id, {
-          ticker: entry.ticker,
-          trade_date: entry.trade_date,
-          rating: entry.rating,
-        });
-        const isFav = Favorites.isFavorited("decision", id);
-        b.classList.toggle("on", isFav);
-        b.textContent = isFav ? "★" : "☆";
-        b.title = isFav ? "取消收藏" : "收藏";
-      });
-    });
-    // star rate (with hover preview)
-    this.listEl.querySelectorAll(".stars-mini").forEach(group => {
-      const stars = group.querySelectorAll(".star");
-      const id = group.dataset.rateId;
-      stars.forEach((s, i) => {
-        s.addEventListener("mouseenter", () => {
-          stars.forEach((x, j) => x.classList.toggle("hov-on", j <= i));
-        });
-        s.addEventListener("click", async ev => {
-          ev.stopPropagation();
-          const rating = i + 1;
-          const cur = (this.cache.find(e => e.id === id) || {}).user_rating || 0;
-          await this.setRating(id, cur === rating ? 0 : rating);  // click same → clear
-        });
-      });
-      group.addEventListener("mouseleave", () => {
-        stars.forEach(x => x.classList.remove("hov-on"));
-      });
-    });
-  },
+  // History.render() is intentionally a no-op now: the dedicated 历史 tab
+  // owns all rendering via HistoryPage. History.refresh() still calls
+  // HistoryPage.render() so both layers stay in sync.
+  render() {},
 };
 
 // =========================================================================
@@ -2323,10 +2123,21 @@ const HistoryPage = {
     }
     this.emptyEl.innerHTML = "";
 
-    this.listEl.innerHTML = filtered.map(e => this._row(e)).join("");
+    const head = `
+      <li class="col-head">
+        <span class="col-ticker">代码</span>
+        <span class="col-rating">建议</span>
+        <span class="col-date">日期</span>
+        <span class="col-depth">深度</span>
+        <span class="col-llm">LLM / 模型</span>
+        <span class="col-stars">评分</span>
+        <span class="col-when">完成时间</span>
+        <span class="col-actions" style="visibility:hidden;">操作</span>
+      </li>`;
+    this.listEl.innerHTML = head + filtered.map(e => this._row(e)).join("");
     this.listEl.querySelectorAll("li.row").forEach(li => {
       li.addEventListener("click", ev => {
-        if (ev.target.closest(".col-actions")) return;
+        if (ev.target.closest(".col-actions") || ev.target.closest(".stars-rate")) return;
         this.openDrawer(li.dataset.id);
       });
     });
@@ -2354,6 +2165,19 @@ const HistoryPage = {
         }
       });
     });
+    // Inline 5-star rate
+    this.listEl.querySelectorAll(".stars-rate").forEach(group => {
+      const stars = group.querySelectorAll(".star");
+      stars.forEach((s, i) => {
+        s.addEventListener("click", async ev => {
+          ev.stopPropagation();
+          const id = group.closest("li.row").dataset.id;
+          const cur = (History.cache.find(e => e.id === id) || {}).user_rating || 0;
+          const next = cur === i + 1 ? 0 : i + 1;
+          await History.setRating(id, next);
+        });
+      });
+    });
     this.updateNavBadge(History.cache.length);
   },
 
@@ -2364,19 +2188,20 @@ const HistoryPage = {
     const llmBadge = e.llm_provider
       ? `<span class="badge">${escapeHtml(e.llm_provider)}</span>`
       : `<span class="badge">—</span>`;
-    const deep = e.deep_think_llm ? escapeHtml(e.deep_think_llm).slice(0, 24) : "";
-    const stars = e.user_rating
-      ? "★".repeat(e.user_rating) + "☆".repeat(5 - e.user_rating)
-      : "—";
+    const deep = e.deep_think_llm ? escapeHtml(e.deep_think_llm) : "";
+    const userRating = e.user_rating || 0;
+    const starsRate = `<span class="stars-rate">${
+      [1,2,3,4,5].map(n => `<span class="star ${userRating >= n ? "on" : ""}">★</span>`).join("")
+    }</span>`;
     return `
       <li class="row ${e.pinned ? "pinned" : ""}" data-id="${e.id}">
         <span class="col-ticker">${dirEmoji} ${escapeHtml(e.ticker || "")}</span>
         <span class="col-rating"><span class="rating-pill ${e.rating || ""}">${escapeHtml(e.rating || "—")}</span></span>
-        <span class="col-date col-meta">${escapeHtml(e.trade_date || "")}</span>
-        <span class="col-depth col-meta">深度 ${e.research_depth || "—"}</span>
-        <span class="col-llm">${llmBadge} ${deep ? `<span style="font-size:10px;color:var(--text-muted);">${deep}</span>` : ""}</span>
-        <span class="col-meta">${stars}</span>
-        <span class="col-meta" style="font-size:11px;">${ts.toLocaleString()}</span>
+        <span class="col-date">${escapeHtml(e.trade_date || "")}</span>
+        <span class="col-depth">${e.research_depth || "—"} 轮</span>
+        <span class="col-llm">${llmBadge}${deep ? `<span class="model" title="${deep}">${deep}</span>` : ""}</span>
+        <span class="col-stars">${starsRate}</span>
+        <span class="col-when">${ts.toLocaleString()}</span>
         <span class="col-actions">
           <button data-act="pin" title="${e.pinned ? "取消置顶" : "置顶"}" class="${e.pinned ? "on" : ""}">${e.pinned ? "📌" : "📍"}</button>
           <button data-act="fav" title="${isFav ? "取消收藏" : "收藏"}" class="${isFav ? "on" : ""}">${isFav ? "★" : "☆"}</button>
