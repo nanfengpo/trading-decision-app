@@ -146,13 +146,19 @@ function initTabs() {
 // Library (78 strategies — unchanged from v1)
 // =========================================================================
 const RISK_NAMES = { 1: "极低", 2: "较低", 3: "中等", 4: "较高", 5: "极高" };
-const filterState = { cat: [], inst: [], tool: [], view: [], horizon: [], complexity: [], risk: [], search: "" };
+const filterState = { cat: [], inst: [], tool: [], view: [], horizon: [], complexity: [], risk: [], search: "", favoritesOnly: false };
 
 function initLibrary() {
   if (typeof STRATEGIES === "undefined") return;
   document.querySelectorAll("[data-filter]").forEach(chip => {
     chip.addEventListener("click", () => {
       const f = chip.dataset.filter, v = chip.dataset.value;
+      if (f === "favorites") {
+        filterState.favoritesOnly = !filterState.favoritesOnly;
+        chip.classList.toggle("active", filterState.favoritesOnly);
+        renderLibrary();
+        return;
+      }
       const arr = filterState[f];
       const i = arr.indexOf(v);
       if (i >= 0) { arr.splice(i, 1); chip.classList.remove("active"); }
@@ -167,7 +173,11 @@ function initLibrary() {
   const clearBtn = document.getElementById("clear-filters");
   if (clearBtn) {
     clearBtn.addEventListener("click", () => {
-      Object.keys(filterState).forEach(k => filterState[k] = (k === "search" ? "" : []));
+      Object.keys(filterState).forEach(k => {
+        if (k === "search") filterState[k] = "";
+        else if (k === "favoritesOnly") filterState[k] = false;
+        else filterState[k] = [];
+      });
       document.querySelectorAll("[data-filter].active").forEach(c => c.classList.remove("active"));
       if (searchEl) searchEl.value = "";
       renderLibrary();
@@ -192,6 +202,9 @@ function renderLibrary() {
     if (filterState.search) {
       const blob = (s.name + " " + s.en + " " + (s.desc || "")).toLowerCase();
       if (!blob.includes(filterState.search)) return false;
+    }
+    if (filterState.favoritesOnly) {
+      if (typeof Favorites === "undefined" || !Favorites.isFavorited("strategy", s.id)) return false;
     }
     return true;
   });
@@ -282,13 +295,28 @@ function renderLibrary() {
 let serverConfig = null;
 let providerById = {};
 
-function showDecisionForm(show) {
+function showDecisionForm(show, presetTicker) {
   document.getElementById("decision-launch").style.display = show ? "none" : "block";
   document.getElementById("decision-form-wrap").style.display = show ? "block" : "none";
   if (show) {
+    if (presetTicker) {
+      const el = document.getElementById("ticker");
+      if (el) { el.value = presetTicker; }
+    }
     setTimeout(() => document.getElementById("ticker")?.focus(), 50);
   }
 }
+
+/**
+ * Open the 决策 tab and pre-fill the form with the given ticker, then
+ * scroll the form into view. Called by Watchlist row "▶ 启动新决策".
+ */
+function openDecisionFor(ticker) {
+  document.getElementById("tab-btn-decision").style.display = "";
+  document.querySelector('nav.tabs button[data-tab="decision"]').click();
+  showDecisionForm(true, ticker);
+}
+window.openDecisionFor = openDecisionFor;
 
 function initDecisionForm() {
   const form = document.getElementById("decision-form");
@@ -453,21 +481,21 @@ function readSelectOrCustom(id) {
 }
 
 function readForm() {
-  const analysts = ANALYST_KEYS.filter(k => document.getElementById(`an-${k}`).checked);
   return {
     ticker: document.getElementById("ticker").value.trim().toUpperCase(),
     trade_date: document.getElementById("trade-date").value,
-    analysts: analysts.length ? analysts : ANALYST_KEYS,
+    // Pinned defaults — UI no longer exposes these:
+    analysts: ANALYST_KEYS,        // always all 4
+    instrument_hint: "",           // always "不限"
+    mode: "live",                  // always LIVE
+    parallel_analysts: true,       // always on (faster + structured below)
+    structured_reports: true,      // always on
     llm_provider: document.getElementById("llm-provider").value,
     deep_think_llm: readSelectOrCustom("deep-llm"),
     quick_think_llm: readSelectOrCustom("quick-llm"),
     research_depth: parseInt(document.getElementById("depth").value, 10) || 1,
     output_language: document.getElementById("language").value,
     risk_tolerance: parseInt(document.getElementById("risk-tolerance").value, 10) || 3,
-    instrument_hint: document.getElementById("instrument").value,
-    mode: document.getElementById("mode").value,
-    parallel_analysts: !!document.getElementById("opt-parallel-analysts")?.checked,
-    structured_reports: !!document.getElementById("opt-structured-reports")?.checked,
   };
 }
 
@@ -1955,6 +1983,303 @@ const Opportunities = {
 };
 
 // =========================================================================
+// Watchlist — main entry point. Lists tracked tickers with live quotes,
+// auto-grouped by market, expandable to show recent decisions per ticker.
+// =========================================================================
+const Watchlist = {
+  LOCAL_KEY: "tda:watchlist",
+  cache: [],          // [{id, ticker, display_name, market, custom_group, ...}]
+  quotes: {},         // ticker → quote dict
+  activeGroup: "all",
+  expandedId: null,
+  _loadError: null,
+
+  MARKETS: [
+    { id: "all",       label: "全部" },
+    { id: "us",        label: "美股" },
+    { id: "hk",        label: "港股" },
+    { id: "cn",        label: "A 股" },
+    { id: "crypto",    label: "加密" },
+    { id: "commodity", label: "期货 / 商品" },
+    { id: "forex",     label: "外汇" },
+    { id: "other",     label: "其他" },
+  ],
+
+  init() {
+    this.listEl    = document.getElementById("watchlist-list");
+    this.emptyEl   = document.getElementById("watchlist-empty");
+    this.groupsEl  = document.getElementById("watchlist-groups");
+    this.updatedEl = document.getElementById("watchlist-updated");
+    if (!this.listEl) return;
+
+    document.getElementById("watchlist-refresh").addEventListener("click", () => this.refresh(true));
+    document.getElementById("watchlist-add-btn").addEventListener("click", () => this._toggleAddForm(true));
+    document.getElementById("watchlist-add-cancel").addEventListener("click", () => this._toggleAddForm(false));
+    document.getElementById("watchlist-add-submit").addEventListener("click", () => this._submitAdd());
+    document.getElementById("watchlist-add-ticker").addEventListener("keydown", e => {
+      if (e.key === "Enter") this._submitAdd();
+    });
+
+    if (window.Auth) window.Auth.onChange(() => this.refresh(true));
+    this.refresh(true);
+    // Auto-refresh quotes every 60s while page is active
+    this._timer = setInterval(() => {
+      if (document.getElementById("watchlist")?.classList.contains("active")) {
+        this._fetchQuotes();
+      }
+    }, 60000);
+  },
+
+  _toggleAddForm(show) {
+    const f = document.getElementById("watchlist-add-form");
+    f.style.display = show ? "" : "none";
+    if (show) setTimeout(() => document.getElementById("watchlist-add-ticker").focus(), 50);
+    else {
+      document.getElementById("watchlist-add-ticker").value = "";
+      document.getElementById("watchlist-add-name").value = "";
+      document.getElementById("watchlist-add-group").value = "";
+    }
+  },
+
+  _useRemote() { return Boolean(window.Watchlist && window.Auth && window.Auth.isSignedIn()); },
+
+  _detectMarket(ticker) {
+    const t = (ticker || "").toUpperCase();
+    if (!t) return "other";
+    if (/^(BTC|ETH|SOL|XRP|DOGE|ADA|MATIC|LINK|AVAX|DOT)[-/]?(USD|USDT)$/.test(t)) return "crypto";
+    if (t.endsWith("USDT") || t.endsWith("-USD")) return "crypto";
+    if (/^\d{4,5}\.HK$|^\d{4,5}$/.test(t)) return "hk";
+    if (/^(SH|SZ)?\d{6}(\.SS|\.SZ)?$/.test(t)) return "cn";
+    if (/^[A-Z]{1,3}=F$|^GC|^CL|^NG|^SI|^HG|^ZC/.test(t)) return "commodity";
+    if (/^[A-Z]{6}=X$/.test(t)) return "forex";
+    if (/^[A-Z]{1,5}$/.test(t)) return "us";
+    return "other";
+  },
+
+  async _submitAdd() {
+    const ticker = document.getElementById("watchlist-add-ticker").value.trim().toUpperCase();
+    const name   = document.getElementById("watchlist-add-name").value.trim();
+    const group  = document.getElementById("watchlist-add-group").value.trim();
+    if (!ticker) return;
+    const market = this._detectMarket(ticker);
+    if (this._useRemote()) {
+      const r = await window.Watchlist.add({ ticker, display_name: name || null, market, custom_group: group || null });
+      if (r.error) { alert("添加失败：" + r.error); return; }
+    } else {
+      // localStorage fallback
+      const all = this._readLocal();
+      if (all.some(x => x.ticker === ticker)) { alert(`${ticker} 已在自选中`); return; }
+      all.unshift({ id: "loc-" + Date.now(), ticker, display_name: name || null, market, custom_group: group || null, added_at: new Date().toISOString() });
+      localStorage.setItem(this.LOCAL_KEY, JSON.stringify(all));
+    }
+    this._toggleAddForm(false);
+    await this.refresh(true);
+  },
+
+  _readLocal() {
+    try { return JSON.parse(localStorage.getItem(this.LOCAL_KEY) || "[]"); }
+    catch { return []; }
+  },
+
+  async refresh(fetchQuotes = false) {
+    this._loadError = null;
+    if (this._useRemote()) {
+      const { rows, error } = await window.Watchlist.list();
+      this._loadError = error;
+      this.cache = rows || [];
+    } else {
+      this.cache = this._readLocal();
+    }
+    this.render();
+    if (fetchQuotes) this._fetchQuotes();
+  },
+
+  async _fetchQuotes() {
+    if (!this.cache.length) return;
+    const tickers = this.cache.map(e => e.ticker);
+    try {
+      const apiBase = (window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL) || "";
+      const r = await fetch(`${apiBase}/api/quotes?tickers=${encodeURIComponent(tickers.join(","))}`);
+      const d = await r.json();
+      (d.items || []).forEach(q => { this.quotes[q.ticker.toUpperCase()] = q; });
+      if (this.updatedEl) this.updatedEl.textContent = "更新于 " + new Date().toLocaleTimeString();
+      this.render();
+    } catch (e) {
+      console.warn("watchlist quotes fetch failed", e);
+    }
+  },
+
+  // ------ render ----------------------------------------------------------
+  _customGroups() {
+    const groups = new Map();
+    this.cache.forEach(e => {
+      if (e.custom_group) groups.set(e.custom_group, (groups.get(e.custom_group) || 0) + 1);
+    });
+    return [...groups.entries()];
+  },
+
+  _filtered() {
+    const g = this.activeGroup;
+    if (g === "all") return this.cache;
+    if (g.startsWith("custom:")) {
+      const name = g.slice(7);
+      return this.cache.filter(e => e.custom_group === name);
+    }
+    return this.cache.filter(e => (e.market || "other") === g);
+  },
+
+  render() {
+    if (!this.listEl) return;
+    this.renderGroups();
+
+    if (!this.cache.length) {
+      this.listEl.innerHTML = "";
+      this.emptyEl.innerHTML = this._loadError
+        ? `<span style="color:var(--danger);">⚠ ${escapeHtml(this._loadError)}</span><br><span style="font-size:11px;">检查 Supabase 是否跑过 schema.sql + 所有 migrations（包括 0006）。</span>`
+        : `<div style="margin-bottom:8px;">还没添加任何自选。</div><div style="font-size:11px;">点击右上角 <strong>+ 添加自选</strong> 开始关注你感兴趣的标的。</div>`;
+      return;
+    }
+    this.emptyEl.innerHTML = "";
+
+    const filtered = this._filtered();
+    const fmt = (n, d=2) => (n == null || isNaN(n)) ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: d });
+    const fmtPct = (p) => (p == null || isNaN(p)) ? "—" : (p >= 0 ? "+" : "") + Number(p).toFixed(2) + "%";
+    const fmtVol = (v) => {
+      if (v == null) return "—";
+      if (v >= 1e9) return (v / 1e9).toFixed(2) + "B";
+      if (v >= 1e6) return (v / 1e6).toFixed(2) + "M";
+      if (v >= 1e3) return (v / 1e3).toFixed(1) + "K";
+      return Math.round(v);
+    };
+
+    const head = `
+      <li class="watchlist-head-row">
+        <span class="wl-c-ticker">代码 / 名称</span>
+        <span class="wl-c-price">最新价</span>
+        <span class="wl-c-pct">涨跌幅</span>
+        <span class="wl-c-ohlc">OHLC</span>
+        <span class="wl-c-vol">成交额</span>
+        <span class="wl-c-cap">市值(M)</span>
+        <span class="wl-c-pe">P/E</span>
+        <span class="wl-c-act"></span>
+      </li>`;
+
+    const rows = filtered.map(e => {
+      const q = this.quotes[e.ticker.toUpperCase()] || {};
+      const pct = q.change_pct;
+      const dirCls = pct == null ? "" : (pct >= 0 ? "up" : "down");
+      const ohlc = (q.open != null) ? `${fmt(q.open)} / ${fmt(q.high)} / ${fmt(q.low)} / ${fmt(q.prev_close)}` : "—";
+      const isExpanded = this.expandedId === e.id;
+      let inner = `
+        <li class="watchlist-row ${isExpanded ? "expanded" : ""}" data-id="${e.id}" data-ticker="${escapeHtml(e.ticker)}">
+          <span class="wl-c-ticker">${escapeHtml(e.ticker)}${e.display_name ? `<span class="wl-name">${escapeHtml(e.display_name)}</span>` : (q.name && q.name !== e.ticker ? `<span class="wl-name">${escapeHtml(q.name)}</span>` : "")}</span>
+          <span class="wl-c-price">${fmt(q.price)}</span>
+          <span class="wl-c-pct ${dirCls}">${fmtPct(pct)}</span>
+          <span class="wl-c-ohlc">${ohlc}</span>
+          <span class="wl-c-vol">${fmtVol(q.turnover || q.volume)}</span>
+          <span class="wl-c-cap">${q.market_cap == null ? "—" : fmt(q.market_cap, 0)}</span>
+          <span class="wl-c-pe">${q.pe_ratio == null ? "—" : fmt(q.pe_ratio, 1)}</span>
+          <span class="wl-c-act">
+            <button class="run-btn" data-act="run" title="启动新决策">▶ 决策</button>
+            <button data-act="del" title="移除">🗑</button>
+          </span>
+        </li>`;
+      if (isExpanded) inner += this._expandedHTML(e);
+      return inner;
+    }).join("");
+
+    this.listEl.innerHTML = head + rows;
+    this._wireRows();
+  },
+
+  _expandedHTML(e) {
+    const decisions = (window.History?.cache || [])
+      .filter(d => (d.ticker || "").toUpperCase() === e.ticker.toUpperCase())
+      .slice(0, 8);
+    const list = decisions.length ? `
+      <ul class="recent-list">
+        ${decisions.map(d => `
+          <li data-decision-id="${d.id}">
+            <span class="pill rating-pill ${d.rating || ""}" style="background:${
+              d.rating === "Buy" || d.rating === "Overweight" ? "#2e7d32" :
+              d.rating === "Sell" || d.rating === "Underweight" ? "#c0392b" :
+              d.rating === "Hold" ? "#b89030" : "var(--bg-soft)"
+            }; color:white;">${escapeHtml(d.rating || "—")}</span>
+            <span>${escapeHtml(d.trade_date || "")}</span>
+            <span class="muted" style="font-size:11px;">${new Date(d.completedAt || d.startedAt).toLocaleString()}</span>
+            ${d.user_rating ? `<span style="color:var(--accent);">${"★".repeat(d.user_rating)}</span>` : ""}
+          </li>`).join("")}
+      </ul>` : `<div class="muted" style="font-size:12px;">还没跑过 ${escapeHtml(e.ticker)} 的决策。</div>`;
+    return `<div class="watchlist-row-expand" data-id="${e.id}">
+      <strong>最近决策</strong>${decisions.length ? ` (${decisions.length})` : ""}
+      ${list}
+    </div>`;
+  },
+
+  _wireRows() {
+    this.listEl.querySelectorAll(".watchlist-row").forEach(li => {
+      li.addEventListener("click", ev => {
+        if (ev.target.closest(".wl-c-act")) return;
+        const id = li.dataset.id;
+        this.expandedId = (this.expandedId === id) ? null : id;
+        this.render();
+      });
+    });
+    this.listEl.querySelectorAll("[data-act]").forEach(b => {
+      b.addEventListener("click", async ev => {
+        ev.stopPropagation();
+        const li = b.closest(".watchlist-row");
+        const id = li.dataset.id;
+        const ticker = li.dataset.ticker;
+        const entry = this.cache.find(x => x.id === id);
+        if (!entry) return;
+        if (b.dataset.act === "run") {
+          openDecisionFor(ticker);
+        } else if (b.dataset.act === "del") {
+          if (!confirm(`从自选中移除 ${ticker}？`)) return;
+          if (this._useRemote()) await window.Watchlist.remove(id);
+          else {
+            const all = this._readLocal().filter(x => x.id !== id);
+            localStorage.setItem(this.LOCAL_KEY, JSON.stringify(all));
+          }
+          await this.refresh();
+        }
+      });
+    });
+    // expanded panel — click decision item
+    this.listEl.querySelectorAll(".recent-list li[data-decision-id]").forEach(li => {
+      li.addEventListener("click", async ev => {
+        ev.stopPropagation();
+        const did = li.dataset.decisionId;
+        document.querySelector('nav.tabs button[data-tab="history"]').click();
+        if (typeof HistoryPage !== "undefined") setTimeout(() => HistoryPage.openDrawer(did), 100);
+      });
+    });
+  },
+
+  renderGroups() {
+    if (!this.groupsEl) return;
+    const counts = {};
+    this.cache.forEach(e => { const m = e.market || "other"; counts[m] = (counts[m] || 0) + 1; });
+    const builtins = this.MARKETS
+      .filter(m => m.id === "all" || counts[m.id])
+      .map(m => `<span class="watchlist-group-chip ${this.activeGroup === m.id ? "active" : ""}" data-group="${m.id}">${m.label}<span class="count">${m.id === "all" ? this.cache.length : (counts[m.id] || 0)}</span></span>`)
+      .join("");
+    const customs = this._customGroups()
+      .map(([name, n]) => `<span class="watchlist-group-chip ${this.activeGroup === "custom:"+name ? "active" : ""}" data-group="custom:${escapeHtml(name)}">${escapeHtml(name)}<span class="count">${n}</span></span>`)
+      .join("");
+    this.groupsEl.innerHTML = builtins + customs;
+    this.groupsEl.querySelectorAll(".watchlist-group-chip").forEach(el => {
+      el.addEventListener("click", () => {
+        this.activeGroup = el.dataset.group;
+        this.expandedId = null;
+        this.render();
+      });
+    });
+  },
+};
+
+// =========================================================================
 // HistoryPage — full-page history view with chip filters + detail drawer
 // =========================================================================
 const HistoryPage = {
@@ -2472,6 +2797,9 @@ const Favorites = {
     }
     this.render();
     this._updateCounts();
+    // Cross-page rerenders so star/heart icons stay in sync
+    if (typeof renderLibrary === "function") renderLibrary();
+    if (typeof HistoryPage !== "undefined") HistoryPage.render();
   },
 
   isFavorited(kind, refId) {
@@ -3144,8 +3472,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   await History.init();
   Favorites.init();
   HistoryPage.init();
+  Watchlist.init();
   Opportunities.init();
   Profile.init();
+
+  // Default landing tab: ⭐ 自选 (was: AI 决策)
+  const watchBtn = document.querySelector('nav.tabs button[data-tab="watchlist"]');
+  if (watchBtn) watchBtn.click();
 });
 
 // History.save needs to be async-safe — DecisionWindow calls it on complete

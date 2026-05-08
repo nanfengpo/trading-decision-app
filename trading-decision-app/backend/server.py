@@ -300,6 +300,25 @@ async def opportunities(
     return JSONResponse({"items": get_feed(severity=severity, ticker=ticker, limit=limit)})
 
 
+# ---- batch quotes (used by 自选 page) ----------------------------------
+
+@app.get("/api/quotes")
+async def quotes(tickers: str = "") -> JSONResponse:
+    """Comma-separated tickers → list of unified quote dicts.
+
+    Routes per-market: crypto → Binance, US → Finnhub Pro / yfinance,
+    HK / A股 / 期货 → yfinance. Missing fields are null. ~1-2s for 20
+    symbols thanks to ThreadPoolExecutor parallelism.
+    """
+    from quotes import fetch_quotes
+    items = [t.strip() for t in (tickers or "").split(",") if t.strip()]
+    if not items:
+        return JSONResponse({"items": []})
+    if len(items) > 100:
+        return JSONResponse({"error": "too many tickers (max 100)"}, status_code=400)
+    return JSONResponse({"items": fetch_quotes(items)})
+
+
 # ---- dataflows diagnostics (used by Profile page) -----------------------
 
 @app.get("/api/dataflows")

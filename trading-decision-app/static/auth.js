@@ -212,6 +212,48 @@
     },
   };
 
+  // --------------------------------------------------------- Watchlist
+  const Watchlist = {
+    async list() {
+      if (!client || !session) return { rows: [], error: null };
+      const { data, error } = await client
+        .from("watchlist")
+        .select("*")
+        .order("sort_order", { ascending: true })
+        .order("added_at", { ascending: false });
+      if (error) { console.error("[watchlist] list", error); return { rows: [], error: error.message }; }
+      return { rows: data || [], error: null };
+    },
+    async add(entry) {
+      if (!client || !session) return { error: "未登录" };
+      const row = {
+        user_id: session.user.id,
+        ticker: (entry.ticker || "").trim().toUpperCase(),
+        display_name: entry.display_name || null,
+        market: entry.market || null,
+        custom_group: entry.custom_group || null,
+        note: entry.note || null,
+      };
+      if (!row.ticker) return { error: "代码不能为空" };
+      const { data, error } = await client.from("watchlist").upsert(row, { onConflict: "user_id,ticker" }).select().single();
+      if (error) { console.error("[watchlist] add", error); return { error: error.message }; }
+      return { row: data };
+    },
+    async remove(id) {
+      if (!client || !session) return false;
+      const { error } = await client.from("watchlist").delete().eq("id", id);
+      if (error) { console.error("[watchlist] remove", error); return false; }
+      return true;
+    },
+    async update(id, patch) {
+      if (!client || !session) return false;
+      const { error } = await client.from("watchlist").update(patch).eq("id", id);
+      if (error) { console.error("[watchlist] update", error); return false; }
+      return true;
+    },
+  };
+
   window.Auth = Auth;
   window.Decisions = Decisions;
+  window.Watchlist = Watchlist;
 })();
