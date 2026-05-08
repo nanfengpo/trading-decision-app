@@ -38,6 +38,7 @@
   <div class="tabs-left">
     <button class="active" data-tab="home">首页</button>
     <button data-tab="decision">AI 决策</button>
+    <button data-tab="history">📜 历史<span class="nav-badge" id="history-nav-badge" style="display:none;"></span></button>
     <button data-tab="opportunities">⚡ 24h 机会<span class="nav-badge" id="opps-nav-badge" style="display:none;"></span></button>
     <button data-tab="library">策略库</button>
     <button data-tab="favorites">⭐ 收藏</button>
@@ -416,6 +417,50 @@
       </div>
     </div>
   </div>
+</section>
+
+<!-- ========================================================== -->
+<!--  HISTORY (full page)                                        -->
+<!-- ========================================================== -->
+<section class="tab-content" id="history">
+  <div class="history-page">
+    <header class="history-page-head">
+      <div>
+        <h2 style="margin:0;">📜 历史决策</h2>
+        <p class="muted" style="margin:4px 0 0; font-size:13px;">查看、筛选、对比所有跑过的决策。点击任意行查看完整参数与最终判断。</p>
+      </div>
+      <div class="history-page-stats" id="history-page-stats"></div>
+    </header>
+
+    <div class="history-page-toolbar">
+      <input type="search" class="history-page-search" id="history-page-search" placeholder="🔍 搜索代码 / 备注 / 决策内容…" />
+      <div class="history-page-actions">
+        <button class="btn secondary small" id="history-page-clear-filters">清空筛选</button>
+        <button class="btn secondary small" id="history-page-refresh">↻ 刷新</button>
+        <button class="btn danger small" id="history-page-clear-all">🗑 清空全部</button>
+      </div>
+    </div>
+
+    <div class="history-page-filters" id="history-page-filters">
+      <!-- filter chip groups injected by HistoryPage.renderFilters() -->
+    </div>
+
+    <div class="history-page-list-wrap">
+      <div class="history-page-empty" id="history-page-empty"></div>
+      <ul class="history-page-list" id="history-page-list"></ul>
+    </div>
+  </div>
+
+  <!-- Detail drawer — slides in from right -->
+  <aside class="history-detail-drawer" id="history-detail-drawer" aria-hidden="true">
+    <div class="drawer-head">
+      <button class="icon-btn" id="history-detail-close" title="关闭">✕</button>
+      <span class="drawer-title" id="history-detail-title">—</span>
+      <div class="drawer-actions" id="history-detail-actions"></div>
+    </div>
+    <div class="drawer-body" id="history-detail-body"></div>
+  </aside>
+  <div class="history-detail-backdrop" id="history-detail-backdrop"></div>
 </section>
 
 <!-- ========================================================== -->
