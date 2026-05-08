@@ -267,9 +267,15 @@
     <!-- Group chips: built-in markets + custom groups -->
     <div class="watchlist-groups" id="watchlist-groups"></div>
 
-    <div class="watchlist-list-wrap">
-      <div class="watchlist-empty" id="watchlist-empty"></div>
-      <ul class="watchlist-list" id="watchlist-list"></ul>
+    <!-- Master-detail layout: sidebar (asset list) + main panel (latest decision). -->
+    <div class="watchlist-mdv" id="watchlist-mdv">
+      <aside class="watchlist-pane" id="watchlist-pane">
+        <div class="watchlist-empty" id="watchlist-empty"></div>
+        <ul class="watchlist-list" id="watchlist-list"></ul>
+      </aside>
+      <section class="watchlist-detail" id="watchlist-detail">
+        <!-- populated by Watchlist.render() -->
+      </section>
     </div>
   </div>
 </section>

@@ -147,7 +147,8 @@ def _fetch_us_finnhub(ticker: str) -> Optional[Dict[str, Any]]:
                 )
                 if m.ok:
                     metric = (m.json() or {}).get("metric") or {}
-                    out["market_cap"] = metric.get("marketCapitalization")  # in M USD
+                    mc_m = metric.get("marketCapitalization")
+                    out["market_cap"] = (mc_m * 1e6) if mc_m is not None else None
                     out["pe_ratio"]   = metric.get("peTTM") or metric.get("peExclExtraTTM")
             except Exception:
                 pass

@@ -55,6 +55,93 @@ function mdLite(text) {
 
 function uid() { return "w" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4); }
 
+// Format a large number as Chinese-text units with currency suffix.
+// e.g. formatLargeCN(3.62e12, "us") → "3.62 万亿美元"
+//      formatLargeCN(2.09e11, "hk") → "2090 亿港币"
+//      formatLargeCN(7.8e7,   "cn") → "7800 万人民币"
+//      formatLargeCN(null,    "us") → "—"
+// Currency map: us/crypto/commodity/forex/other → 美元, hk → 港币, cn → 人民币.
+function formatLargeCN(value, market) {
+  if (value == null || isNaN(value)) return "—";
+  const v = Math.abs(Number(value));
+  const sign = Number(value) < 0 ? "-" : "";
+  let num, unit;
+  if (v >= 1e12)      { num = v / 1e12; unit = "万亿"; }
+  else if (v >= 1e8)  { num = v / 1e8;  unit = "亿";   }
+  else if (v >= 1e4)  { num = v / 1e4;  unit = "万";   }
+  else                { num = v;        unit = "";    }
+  // 3 sig figs, trimmed; if integer-ish, no decimals
+  let s = num >= 100 ? num.toFixed(0)
+        : num >= 10  ? num.toFixed(1).replace(/\.0$/, "")
+        : num.toFixed(2).replace(/\.?0+$/, "");
+  const cur = (market === "hk") ? "港币" : (market === "cn") ? "人民币" : "美元";
+  return `${sign}${s} ${unit}${cur}`.replace(/\s+/g, " ").trim();
+}
+
+// Render the decision-detail body (params / usage / final / matched strategies)
+// shared between HistoryPage drawer and the Watchlist main panel.
+function renderDecisionSections(entry) {
+  if (!entry) return "";
+  const params = entry.params || {};
+  const dec = entry.runState?.finalDecision || {};
+  const usage = entry.runState?.usage || {};
+  const matched = entry.runState?.matchedStrategies || [];
+
+  const rows = (kvs) => kvs.filter(([_, v]) => v != null && v !== "")
+    .map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(String(v))}</td></tr>`).join("");
+
+  const paramsBlock = `
+    <div class="section">
+      <h4>运行参数</h4>
+      <table class="params-table">${rows([
+        ["LLM Provider",   params.llm_provider],
+        ["深思模型",       params.deep_think_llm],
+        ["轻思模型",       params.quick_think_llm],
+        ["研究深度",       params.research_depth ? `${params.research_depth} 轮` : null],
+        ["运行模式",       params.mode],
+        ["输出语言",       params.output_language],
+        ["品种偏好",       params.instrument_hint || "不限"],
+        ["风险偏好",       params.risk_tolerance],
+        ["分析师选择",     Array.isArray(params.selected_analysts) ? params.selected_analysts.join(", ") : null],
+        ["策略关注",       Array.isArray(params.strategies_focus) ? params.strategies_focus.join(", ") : null],
+        ["开始时间",       entry.startedAt ? new Date(entry.startedAt).toLocaleString() : null],
+        ["完成时间",       entry.completedAt ? new Date(entry.completedAt).toLocaleString() : null],
+        ["状态",           entry.status],
+      ])}</table>
+    </div>`;
+
+  const usageBlock = (usage && (usage.tokens_in || usage.tokens_out || usage.elapsed_sec))
+    ? `<div class="section">
+        <h4>用量</h4>
+        <table class="params-table">${rows([
+          ["耗时",           usage.elapsed_sec ? `${usage.elapsed_sec}s` : null],
+          ["输入 token",     usage.tokens_in],
+          ["输出 token",     usage.tokens_out],
+          ["LLM 调用",       usage.llm_calls],
+          ["工具调用",       usage.tool_calls],
+        ])}</table>
+      </div>` : "";
+
+  const finalRaw = dec.raw_zh || dec.raw_en || "";
+  const finalBlock = finalRaw ? `
+    <div class="section">
+      <h4>最终决策</h4>
+      <div class="final-text">${mdLite(finalRaw)}</div>
+    </div>` : "";
+
+  const matchBlock = matched.length ? `
+    <div class="section">
+      <h4>匹配策略 (${matched.length})</h4>
+      ${matched.slice(0, 5).map(m => `
+        <div style="border:1px solid var(--border); border-radius:6px; padding:8px 10px; margin-bottom:6px;">
+          <div><strong>${escapeHtml(m.name || "")}</strong> · 匹配分 ${m.score}</div>
+          ${m.concrete_how ? `<div style="font-size:12px; margin-top:4px;">${escapeHtml(m.concrete_how)}</div>` : ""}
+        </div>`).join("")}
+    </div>` : "";
+
+  return paramsBlock + usageBlock + finalBlock + matchBlock;
+}
+
 function isMostlyChinese(s) {
   if (!s) return true;
   let zh = 0, total = 0;
@@ -1709,6 +1796,9 @@ const History = {
       }
     }
     await this.refresh();
+    // Keep watchlist in sync — every analyzed ticker is in 自选.
+    try { if (typeof Watchlist !== "undefined") await Watchlist.ensureTicker(entry.ticker); }
+    catch (e) { console.warn("ensureTicker after save failed", e); }
   },
 
   async delete(id) {
@@ -1983,15 +2073,19 @@ const Opportunities = {
 };
 
 // =========================================================================
-// Watchlist — main entry point. Lists tracked tickers with live quotes,
-// auto-grouped by market, expandable to show recent decisions per ticker.
+// Watchlist — main entry point. Master-detail layout: sidebar lists tracked
+// tickers with live quotes; main panel shows the latest historical decision
+// for the selected ticker (with a chip strip to switch among older decisions).
 // =========================================================================
 const Watchlist = {
   LOCAL_KEY: "tda:watchlist",
+  LOCAL_SELECTED_KEY: "tda:wl:selected",
   cache: [],          // [{id, ticker, display_name, market, custom_group, ...}]
   quotes: {},         // ticker → quote dict
+  detailCache: {},    // decisionId → full entry (with runState) for chip-switch
   activeGroup: "all",
-  expandedId: null,
+  selectedTicker: null,
+  selectedDecisionId: null,
   _loadError: null,
 
   MARKETS: [
@@ -2008,9 +2102,12 @@ const Watchlist = {
   init() {
     this.listEl    = document.getElementById("watchlist-list");
     this.emptyEl   = document.getElementById("watchlist-empty");
+    this.detailEl  = document.getElementById("watchlist-detail");
     this.groupsEl  = document.getElementById("watchlist-groups");
     this.updatedEl = document.getElementById("watchlist-updated");
-    if (!this.listEl) return;
+    if (!this.listEl || !this.detailEl) return;
+
+    this.selectedTicker = localStorage.getItem(this.LOCAL_SELECTED_KEY) || null;
 
     document.getElementById("watchlist-refresh").addEventListener("click", () => this.refresh(true));
     document.getElementById("watchlist-add-btn").addEventListener("click", () => this._toggleAddForm(true));
@@ -2029,6 +2126,27 @@ const Watchlist = {
         this._fetchQuotes();
       }
     }, 60000);
+  },
+
+  // Public — called from History.save() to keep watchlist in sync with
+  // every analyzed ticker. No-op if the ticker is already present.
+  async ensureTicker(ticker) {
+    if (!ticker) return;
+    const t = String(ticker).trim().toUpperCase();
+    if (!t) return;
+    if (this.cache.some(x => (x.ticker || "").toUpperCase() === t)) return;
+    const market = this._detectMarket(t);
+    if (this._useRemote()) {
+      try { await window.Watchlist.add({ ticker: t, market }); }
+      catch (e) { console.warn("ensureTicker remote add failed", e); return; }
+    } else {
+      const all = this._readLocal();
+      if (all.some(x => x.ticker === t)) return;
+      all.unshift({ id: "loc-" + Date.now() + Math.random().toString(36).slice(2,5),
+                    ticker: t, market, added_at: new Date().toISOString() });
+      localStorage.setItem(this.LOCAL_KEY, JSON.stringify(all));
+    }
+    await this.refresh(true);
   },
 
   _toggleAddForm(show) {
@@ -2080,6 +2198,8 @@ const Watchlist = {
       localStorage.setItem(this.LOCAL_KEY, JSON.stringify(all));
     }
     this._toggleAddForm(false);
+    this.selectedTicker = ticker;  // newly added → select it in the sidebar
+    this.selectedDecisionId = null;
     await this.refresh(true);
   },
 
@@ -2096,7 +2216,7 @@ const Watchlist = {
    * backfill — guarded by a localStorage flag so we don't nag).
    */
   async importFromHistory(silent = false) {
-    if (!window.History) return { added: 0, skipped: 0 };
+    if (typeof History === "undefined") return { added: 0, skipped: 0 };
     const seen = new Set(this.cache.map(e => (e.ticker || "").toUpperCase()));
     const toAdd = [];
     (History.cache || []).forEach(d => {
@@ -2138,23 +2258,48 @@ const Watchlist = {
     } else {
       this.cache = this._readLocal();
     }
-    this.render();
 
-    // One-time auto-import: if signed-in user has decisions but no watchlist,
-    // backfill from history. Guarded so it only runs once per browser.
-    const flagKey = "tda:wl:autoImported";
+    // One-time backfill of any history ticker not yet in the watchlist.
+    // After this runs once, History.save() → Watchlist.ensureTicker() keeps
+    // things in sync going forward; we don't need to repeat the scan.
+    const flagKey = "tda:wl:autoImported2";
+    const histCache = (typeof History !== "undefined" && History.cache) ? History.cache : [];
     if (this._useRemote()
-        && this.cache.length === 0
-        && (window.History?.cache || []).length > 0
+        && histCache.length > 0
         && !localStorage.getItem(flagKey)) {
+      const have = new Set(this.cache.map(e => (e.ticker || "").toUpperCase()));
+      const missing = histCache
+        .map(d => (d.ticker || "").trim().toUpperCase())
+        .filter(t => t && !have.has(t));
+      if (missing.length) {
+        try {
+          const r = await this.importFromHistory(true);
+          if (r.added > 0) console.info("watchlist backfill: added", r.added, "tickers from history");
+        } catch (e) { console.warn("watchlist backfill failed", e); }
+      }
       localStorage.setItem(flagKey, "1");
-      try {
-        const r = await this.importFromHistory(true);
-        if (r.added > 0) console.info("watchlist auto-imported", r.added, "tickers from history");
-      } catch (e) { console.warn("auto-import failed", e); }
+      // Re-load after potential inserts so cache reflects them.
+      if (missing.length && this._useRemote()) {
+        const { rows } = await window.Watchlist.list();
+        this.cache = rows || [];
+      }
     }
 
+    this._reconcileSelection();
+    this.render();
     if (fetchQuotes) this._fetchQuotes();
+  },
+
+  _reconcileSelection() {
+    const filtered = this._filtered();
+    const has = (t) => t && filtered.some(e => (e.ticker || "").toUpperCase() === String(t).toUpperCase());
+    if (!has(this.selectedTicker)) {
+      this.selectedTicker = filtered[0]?.ticker || null;
+      this.selectedDecisionId = null;
+    }
+    if (this.selectedTicker) {
+      localStorage.setItem(this.LOCAL_SELECTED_KEY, this.selectedTicker);
+    }
   },
 
   async _fetchQuotes() {
@@ -2191,12 +2336,38 @@ const Watchlist = {
     return this.cache.filter(e => (e.market || "other") === g);
   },
 
+  // Look up all decisions for a given ticker, newest first.
+  // NOTE: must use the module-scope `History`, not `window.History` — the
+  // latter is the browser's native History object.
+  _decisionsFor(ticker) {
+    if (!ticker) return [];
+    const t = String(ticker).toUpperCase();
+    const all = (typeof History !== "undefined" && History.cache) ? History.cache : [];
+    return all
+      .filter(d => (d.ticker || "").toUpperCase() === t)
+      .sort((a, b) => {
+        const ta = new Date(a.completedAt || a.startedAt || 0).getTime();
+        const tb = new Date(b.completedAt || b.startedAt || 0).getTime();
+        return tb - ta;
+      });
+  },
+
+  // Sort key used by the sidebar: rows with decisions first (newest decision
+  // wins), then alphabetical within each block.
+  _sortKey(e) {
+    const decisions = this._decisionsFor(e.ticker);
+    const latest = decisions[0];
+    const t = latest ? new Date(latest.completedAt || latest.startedAt || 0).getTime() : 0;
+    return { hasDecision: decisions.length > 0, latestTs: t, ticker: (e.ticker || "").toUpperCase() };
+  },
+
   render() {
     if (!this.listEl) return;
     this.renderGroups();
 
     if (!this.cache.length) {
       this.listEl.innerHTML = "";
+      this.detailEl.innerHTML = "";
       this.emptyEl.innerHTML = this._loadError
         ? `<span style="color:var(--danger);">⚠ ${escapeHtml(this._loadError)}</span><br><span style="font-size:11px;">检查 Supabase 是否跑过 schema.sql + 所有 migrations（包括 0006）。</span>`
         : `<div style="margin-bottom:8px;">还没添加任何自选。</div><div style="font-size:11px;">点击右上角 <strong>+ 添加自选</strong> 开始关注你感兴趣的标的。</div>`;
@@ -2204,88 +2375,161 @@ const Watchlist = {
     }
     this.emptyEl.innerHTML = "";
 
-    const filtered = this._filtered();
+    const filtered = this._filtered().slice().sort((a, b) => {
+      const ka = this._sortKey(a), kb = this._sortKey(b);
+      if (ka.hasDecision !== kb.hasDecision) return ka.hasDecision ? -1 : 1;
+      if (ka.hasDecision && ka.latestTs !== kb.latestTs) return kb.latestTs - ka.latestTs;
+      return ka.ticker.localeCompare(kb.ticker);
+    });
+
     const fmt = (n, d=2) => (n == null || isNaN(n)) ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: d });
     const fmtPct = (p) => (p == null || isNaN(p)) ? "—" : (p >= 0 ? "+" : "") + Number(p).toFixed(2) + "%";
-    const fmtVol = (v) => {
-      if (v == null) return "—";
-      if (v >= 1e9) return (v / 1e9).toFixed(2) + "B";
-      if (v >= 1e6) return (v / 1e6).toFixed(2) + "M";
-      if (v >= 1e3) return (v / 1e3).toFixed(1) + "K";
-      return Math.round(v);
-    };
 
-    const head = `
-      <li class="watchlist-head-row">
-        <span class="wl-c-ticker">代码 / 名称</span>
-        <span class="wl-c-price">最新价</span>
-        <span class="wl-c-pct">涨跌幅</span>
-        <span class="wl-c-ohlc">OHLC</span>
-        <span class="wl-c-vol">成交额</span>
-        <span class="wl-c-cap">市值(M)</span>
-        <span class="wl-c-pe">P/E</span>
-        <span class="wl-c-act"></span>
-      </li>`;
-
+    // ---- Sidebar rows -----------------------------------------------------
     const rows = filtered.map(e => {
       const q = this.quotes[e.ticker.toUpperCase()] || {};
       const pct = q.change_pct;
       const dirCls = pct == null ? "" : (pct >= 0 ? "up" : "down");
-      const ohlc = (q.open != null) ? `${fmt(q.open)} / ${fmt(q.high)} / ${fmt(q.low)} / ${fmt(q.prev_close)}` : "—";
-      const isExpanded = this.expandedId === e.id;
-      let inner = `
-        <li class="watchlist-row ${isExpanded ? "expanded" : ""}" data-id="${e.id}" data-ticker="${escapeHtml(e.ticker)}">
-          <span class="wl-c-ticker">${escapeHtml(e.ticker)}${e.display_name ? `<span class="wl-name">${escapeHtml(e.display_name)}</span>` : (q.name && q.name !== e.ticker ? `<span class="wl-name">${escapeHtml(q.name)}</span>` : "")}</span>
-          <span class="wl-c-price">${fmt(q.price)}</span>
-          <span class="wl-c-pct ${dirCls}">${fmtPct(pct)}</span>
-          <span class="wl-c-ohlc">${ohlc}</span>
-          <span class="wl-c-vol">${fmtVol(q.turnover || q.volume)}</span>
-          <span class="wl-c-cap">${q.market_cap == null ? "—" : fmt(q.market_cap, 0)}</span>
-          <span class="wl-c-pe">${q.pe_ratio == null ? "—" : fmt(q.pe_ratio, 1)}</span>
-          <span class="wl-c-act">
-            <button class="run-btn" data-act="run" title="启动新决策">▶ 决策</button>
-            <button data-act="del" title="移除">🗑</button>
-          </span>
+      const arrow = pct == null ? "" : (pct >= 0 ? " ↑" : " ↓");
+      const name = e.display_name || (q.name && q.name !== e.ticker ? q.name : "");
+      const isSel = (this.selectedTicker || "").toUpperCase() === e.ticker.toUpperCase();
+      return `
+        <li class="watchlist-row ${isSel ? "selected" : ""}" data-id="${e.id}" data-ticker="${escapeHtml(e.ticker)}">
+          <div class="wl-r-head">
+            <span class="wl-r-ticker">${escapeHtml(e.ticker)}</span>
+            <span class="wl-r-actions">
+              <button class="run-btn" data-act="run" title="启动新决策">▶</button>
+              <button data-act="del" title="移除">🗑</button>
+            </span>
+          </div>
+          ${name ? `<div class="wl-r-name">${escapeHtml(name)}</div>` : ""}
+          <div class="wl-r-quote">
+            <span class="wl-r-price">${fmt(q.price)}</span>
+            <span class="wl-r-pct ${dirCls}">${fmtPct(pct)}${arrow}</span>
+          </div>
         </li>`;
-      if (isExpanded) inner += this._expandedHTML(e);
-      return inner;
     }).join("");
+    this.listEl.innerHTML = rows;
+    this._wireSidebar();
 
-    this.listEl.innerHTML = head + rows;
-    this._wireRows();
+    // ---- Main detail panel ------------------------------------------------
+    this._renderDetail();
   },
 
-  _expandedHTML(e) {
-    const decisions = (window.History?.cache || [])
-      .filter(d => (d.ticker || "").toUpperCase() === e.ticker.toUpperCase())
-      .slice(0, 8);
-    const list = decisions.length ? `
-      <ul class="recent-list">
-        ${decisions.map(d => `
-          <li data-decision-id="${d.id}">
-            <span class="pill rating-pill ${d.rating || ""}" style="background:${
-              d.rating === "Buy" || d.rating === "Overweight" ? "#2e7d32" :
-              d.rating === "Sell" || d.rating === "Underweight" ? "#c0392b" :
-              d.rating === "Hold" ? "#b89030" : "var(--bg-soft)"
-            }; color:white;">${escapeHtml(d.rating || "—")}</span>
-            <span>${escapeHtml(d.trade_date || "")}</span>
-            <span class="muted" style="font-size:11px;">${new Date(d.completedAt || d.startedAt).toLocaleString()}</span>
-            ${d.user_rating ? `<span style="color:var(--accent);">${"★".repeat(d.user_rating)}</span>` : ""}
-          </li>`).join("")}
-      </ul>` : `<div class="muted" style="font-size:12px;">还没跑过 ${escapeHtml(e.ticker)} 的决策。</div>`;
-    return `<div class="watchlist-row-expand" data-id="${e.id}">
-      <strong>最近决策</strong>${decisions.length ? ` (${decisions.length})` : ""}
-      ${list}
-    </div>`;
+  // Render the main detail panel for the currently-selected ticker.
+  _renderDetail() {
+    if (!this.detailEl) return;
+    const ticker = this.selectedTicker;
+    const entry = ticker ? this.cache.find(e => (e.ticker || "").toUpperCase() === ticker.toUpperCase()) : null;
+    if (!entry) {
+      this.detailEl.innerHTML = `<div class="wl-detail-empty muted">从左侧选择一个标的查看决策详情。</div>`;
+      return;
+    }
+    const q = this.quotes[entry.ticker.toUpperCase()] || {};
+    const market = entry.market || this._detectMarket(entry.ticker);
+    const decisions = this._decisionsFor(entry.ticker);
+
+    // Default to the latest decision when ticker just changed or the previous
+    // selection no longer exists for this ticker.
+    if (!this.selectedDecisionId || !decisions.some(d => d.id === this.selectedDecisionId)) {
+      this.selectedDecisionId = decisions[0]?.id || null;
+    }
+
+    const fmt = (n, d=2) => (n == null || isNaN(n)) ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: d });
+    const fmtPct = (p) => (p == null || isNaN(p)) ? "—" : (p >= 0 ? "+" : "") + Number(p).toFixed(2) + "%";
+    const pct = q.change_pct;
+    const dirCls = pct == null ? "" : (pct >= 0 ? "up" : "down");
+    const arrow = pct == null ? "" : (pct >= 0 ? " ↑" : " ↓");
+    const ohlc = (q.open != null)
+      ? `<span class="muted">开</span> ${fmt(q.open)} <span class="muted">高</span> ${fmt(q.high)} <span class="muted">低</span> ${fmt(q.low)} <span class="muted">昨收</span> ${fmt(q.prev_close)}`
+      : `<span class="muted">—</span>`;
+
+    const marketLabel = (this.MARKETS.find(m => m.id === market) || {}).label || "其他";
+    const dispName = entry.display_name || (q.name && q.name !== entry.ticker ? q.name : "");
+
+    const quoteCard = `
+      <div class="wl-quote-card">
+        <div class="wl-quote-head">
+          <div class="wl-quote-title">
+            <strong class="wl-quote-ticker">${escapeHtml(entry.ticker)}</strong>
+            ${dispName ? `<span class="wl-quote-name">${escapeHtml(dispName)}</span>` : ""}
+          </div>
+          <span class="wl-market-badge">${escapeHtml(marketLabel)}</span>
+        </div>
+        <div class="wl-quote-mid">
+          <span class="wl-quote-price">${fmt(q.price)}</span>
+          <span class="wl-quote-pct ${dirCls}">${fmtPct(pct)}${arrow}</span>
+          <span class="wl-quote-ohlc">${ohlc}</span>
+        </div>
+        <div class="wl-quote-stats">
+          <div><span class="muted">成交额</span> <strong>${formatLargeCN(q.turnover || q.volume, market)}</strong></div>
+          <div><span class="muted">市值</span> <strong>${formatLargeCN(q.market_cap, market)}</strong></div>
+          <div><span class="muted">P/E</span> <strong>${q.pe_ratio == null ? "—" : fmt(q.pe_ratio, 1)}</strong></div>
+        </div>
+      </div>`;
+
+    if (!decisions.length) {
+      this.detailEl.innerHTML = quoteCard + `
+        <div class="wl-empty-block">
+          <div class="muted" style="margin-bottom:14px;">还没跑过 ${escapeHtml(entry.ticker)} 的决策。</div>
+          <button class="btn primary" id="wl-empty-run">▶ 启动新决策</button>
+        </div>`;
+      const btn = document.getElementById("wl-empty-run");
+      if (btn) btn.addEventListener("click", () => openDecisionFor(entry.ticker));
+      return;
+    }
+
+    const ratingColor = (r) => (r === "Buy" || r === "Overweight") ? "#2e7d32"
+                           : (r === "Sell" || r === "Underweight") ? "#c0392b"
+                           : (r === "Hold") ? "#b89030"
+                           : "var(--bg-soft)";
+    const chips = decisions.slice(0, 12).map(d => `
+      <button class="wl-decision-chip ${this.selectedDecisionId === d.id ? "active" : ""}"
+              data-decision-id="${escapeHtml(d.id)}"
+              style="--chip-tint:${ratingColor(d.rating)};">
+        <span class="wl-chip-date">${escapeHtml(d.trade_date || "")}</span>
+        <span class="wl-chip-rating">${escapeHtml(d.rating || "—")}</span>
+      </button>`).join("");
+
+    const sel = decisions.find(d => d.id === this.selectedDecisionId) || decisions[0];
+    const cached = this.detailCache[sel.id] || sel;
+
+    this.detailEl.innerHTML = quoteCard + `
+      <div class="wl-decision-strip">
+        <div class="wl-strip-header">
+          <strong>历史决策</strong>
+          <span class="muted">共 ${decisions.length} 条</span>
+          <span class="wl-strip-spacer"></span>
+          <button class="icon-btn small" id="wl-detail-open" title="在新窗口打开">🪟 在新窗口打开</button>
+        </div>
+        <div class="wl-chip-row">${chips}</div>
+      </div>
+      <div class="wl-decision-body">${renderDecisionSections(cached)}</div>`;
+
+    this._wireDetail(sel);
+
+    // Lazy-fetch full runState (remote entries don't carry it in the list).
+    if (sel._remote && !this.detailCache[sel.id]) {
+      History.getEntry(sel.id).then(full => {
+        if (!full) return;
+        this.detailCache[sel.id] = full;
+        // Re-render only if the user hasn't moved on to a different decision.
+        if (this.selectedDecisionId === sel.id) this._renderDetail();
+      }).catch(e => console.warn("decision lazy-fetch failed", e));
+    }
   },
 
-  _wireRows() {
+  _wireSidebar() {
     this.listEl.querySelectorAll(".watchlist-row").forEach(li => {
       li.addEventListener("click", ev => {
-        if (ev.target.closest(".wl-c-act")) return;
-        const id = li.dataset.id;
-        this.expandedId = (this.expandedId === id) ? null : id;
-        this.render();
+        if (ev.target.closest("[data-act]")) return;
+        const ticker = li.dataset.ticker;
+        if (this.selectedTicker !== ticker) {
+          this.selectedTicker = ticker;
+          this.selectedDecisionId = null;
+          localStorage.setItem(this.LOCAL_SELECTED_KEY, ticker);
+          this.render();
+        }
       });
     });
     this.listEl.querySelectorAll("[data-act]").forEach(b => {
@@ -2294,8 +2538,6 @@ const Watchlist = {
         const li = b.closest(".watchlist-row");
         const id = li.dataset.id;
         const ticker = li.dataset.ticker;
-        const entry = this.cache.find(x => x.id === id);
-        if (!entry) return;
         if (b.dataset.act === "run") {
           openDecisionFor(ticker);
         } else if (b.dataset.act === "del") {
@@ -2305,19 +2547,36 @@ const Watchlist = {
             const all = this._readLocal().filter(x => x.id !== id);
             localStorage.setItem(this.LOCAL_KEY, JSON.stringify(all));
           }
+          if ((this.selectedTicker || "").toUpperCase() === ticker.toUpperCase()) {
+            this.selectedTicker = null;
+            this.selectedDecisionId = null;
+          }
           await this.refresh();
         }
       });
     });
-    // expanded panel — click decision item
-    this.listEl.querySelectorAll(".recent-list li[data-decision-id]").forEach(li => {
-      li.addEventListener("click", async ev => {
-        ev.stopPropagation();
-        const did = li.dataset.decisionId;
-        document.querySelector('nav.tabs button[data-tab="history"]').click();
-        if (typeof HistoryPage !== "undefined") setTimeout(() => HistoryPage.openDrawer(did), 100);
+  },
+
+  _wireDetail(selectedDecision) {
+    this.detailEl.querySelectorAll(".wl-decision-chip").forEach(chip => {
+      chip.addEventListener("click", () => {
+        const did = chip.dataset.decisionId;
+        if (this.selectedDecisionId !== did) {
+          this.selectedDecisionId = did;
+          this._renderDetail();
+        }
       });
     });
+    const openBtn = document.getElementById("wl-detail-open");
+    if (openBtn && selectedDecision) {
+      openBtn.addEventListener("click", async () => {
+        const full = this.detailCache[selectedDecision.id]
+                  || await History.getEntry(selectedDecision.id);
+        if (!full) return;
+        document.querySelector('nav.tabs button[data-tab="decision"]').click();
+        WindowManager.openHistorical(full);
+      });
+    }
   },
 
   renderGroups() {
@@ -2335,7 +2594,7 @@ const Watchlist = {
     this.groupsEl.querySelectorAll(".watchlist-group-chip").forEach(el => {
       el.addEventListener("click", () => {
         this.activeGroup = el.dataset.group;
-        this.expandedId = null;
+        this._reconcileSelection();
         this.render();
       });
     });
@@ -2736,65 +2995,8 @@ const HistoryPage = {
     document.getElementById("history-detail-title").textContent =
       `${entry.ticker} · ${entry.trade_date}`;
 
-    const params = entry.params || {};
-    const dec = entry.runState?.finalDecision || {};
-    const usage = entry.runState?.usage || {};
-    const matched = entry.runState?.matchedStrategies || [];
-
-    const rows = (kvs) => kvs.filter(([_, v]) => v != null && v !== "")
-      .map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(String(v))}</td></tr>`).join("");
-
-    const paramsBlock = `
-      <div class="section">
-        <h4>运行参数</h4>
-        <table class="params-table">${rows([
-          ["LLM Provider",   params.llm_provider],
-          ["深思模型",       params.deep_think_llm],
-          ["轻思模型",       params.quick_think_llm],
-          ["研究深度",       params.research_depth ? `${params.research_depth} 轮` : null],
-          ["运行模式",       params.mode],
-          ["输出语言",       params.output_language],
-          ["品种偏好",       params.instrument_hint || "不限"],
-          ["风险偏好",       params.risk_tolerance],
-          ["分析师选择",     Array.isArray(params.selected_analysts) ? params.selected_analysts.join(", ") : null],
-          ["策略关注",       Array.isArray(params.strategies_focus) ? params.strategies_focus.join(", ") : null],
-          ["开始时间",       entry.startedAt ? new Date(entry.startedAt).toLocaleString() : null],
-          ["完成时间",       entry.completedAt ? new Date(entry.completedAt).toLocaleString() : null],
-          ["状态",           entry.status],
-        ])}</table>
-      </div>`;
-
-    const usageBlock = (usage && (usage.tokens_in || usage.tokens_out || usage.elapsed_sec))
-      ? `<div class="section">
-          <h4>用量</h4>
-          <table class="params-table">${rows([
-            ["耗时",           usage.elapsed_sec ? `${usage.elapsed_sec}s` : null],
-            ["输入 token",     usage.tokens_in],
-            ["输出 token",     usage.tokens_out],
-            ["LLM 调用",       usage.llm_calls],
-            ["工具调用",       usage.tool_calls],
-          ])}</table>
-        </div>` : "";
-
-    const finalRaw = dec.raw_zh || dec.raw_en || "";
-    const finalBlock = finalRaw ? `
-      <div class="section">
-        <h4>最终决策</h4>
-        <div class="final-text">${mdLite(finalRaw)}</div>
-      </div>` : "";
-
-    const matchBlock = matched.length ? `
-      <div class="section">
-        <h4>匹配策略 (${matched.length})</h4>
-        ${matched.slice(0, 5).map(m => `
-          <div style="border:1px solid var(--border); border-radius:6px; padding:8px 10px; margin-bottom:6px;">
-            <div><strong>${escapeHtml(m.name || "")}</strong> · 匹配分 ${m.score}</div>
-            ${m.concrete_how ? `<div style="font-size:12px; margin-top:4px;">${escapeHtml(m.concrete_how)}</div>` : ""}
-          </div>`).join("")}
-      </div>` : "";
-
     document.getElementById("history-detail-body").innerHTML =
-      paramsBlock + usageBlock + finalBlock + matchBlock;
+      renderDecisionSections(entry);
 
     // actions in drawer head
     const isFav = (typeof Favorites !== "undefined") && Favorites.isFavorited("decision", id);
