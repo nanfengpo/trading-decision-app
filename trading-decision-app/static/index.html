@@ -37,7 +37,8 @@
 <nav class="tabs" id="tabs">
   <div class="tabs-left">
     <button class="active" data-tab="home">首页</button>
-    <button data-tab="decision">AI 决策</button>
+    <button data-tab="watchlist">⭐ 自选</button>
+    <button data-tab="decision" style="display:none;" id="tab-btn-decision">运行中</button>
     <button data-tab="history">📜 历史<span class="nav-badge" id="history-nav-badge" style="display:none;"></span></button>
     <button data-tab="opportunities">⚡ 24h 机会<span class="nav-badge" id="opps-nav-badge" style="display:none;"></span></button>
     <button data-tab="library">策略库</button>
@@ -219,7 +220,48 @@
 </section>
 
 <!-- ========================================================== -->
-<!--  AI DECISION TAB                                            -->
+<!--  WATCHLIST (新主入口)                                        -->
+<!-- ========================================================== -->
+<section class="tab-content" id="watchlist">
+  <div class="watchlist-page">
+    <header class="watchlist-head">
+      <div>
+        <h2 style="margin:0;">⭐ 自选</h2>
+        <p class="muted" style="margin:4px 0 0; font-size:13px;">
+          关注的标的、实时报价与历史决策一站式查看。点击任意标的查看历史决策或启动新分析。
+        </p>
+      </div>
+      <div style="display:flex; gap:6px; align-items:center;">
+        <span class="muted" style="font-size:12px;" id="watchlist-updated"></span>
+        <button class="btn secondary small" id="watchlist-refresh">↻ 刷新</button>
+        <button class="btn primary small" id="watchlist-add-btn">+ 添加自选</button>
+      </div>
+    </header>
+
+    <!-- Add form: hidden until + 添加自选 clicked -->
+    <div class="watchlist-add-form" id="watchlist-add-form" style="display:none;">
+      <input type="text" id="watchlist-add-ticker"
+             placeholder="代码：NVDA / BTC-USD / 0700.HK / 600519.SS / GC=F …"
+             autocomplete="off" />
+      <input type="text" id="watchlist-add-name" placeholder="昵称（可选）" autocomplete="off" />
+      <input type="text" id="watchlist-add-group"
+             placeholder="自定义分组（可选，例如：龙头股 / 长期持有）" autocomplete="off" />
+      <button class="btn primary small" id="watchlist-add-submit">添加</button>
+      <button class="btn secondary small" id="watchlist-add-cancel">取消</button>
+    </div>
+
+    <!-- Group chips: built-in markets + custom groups -->
+    <div class="watchlist-groups" id="watchlist-groups"></div>
+
+    <div class="watchlist-list-wrap">
+      <div class="watchlist-empty" id="watchlist-empty"></div>
+      <ul class="watchlist-list" id="watchlist-list"></ul>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================== -->
+<!--  AI DECISION TAB (entry point only — opened from 自选)       -->
 <!-- ========================================================== -->
 <section class="tab-content" id="decision">
   <h2>多智能体投研 + 策略库匹配</h2>
@@ -286,19 +328,6 @@
           </select>
         </div>
         <div class="field">
-          <label for="instrument">品种偏好（用于策略匹配）</label>
-          <select id="instrument">
-            <option value="" selected>不限</option>
-            <option value="stock">股票</option>
-            <option value="etf">ETF</option>
-            <option value="crypto">加密</option>
-            <option value="gold">黄金</option>
-            <option value="commodity">商品</option>
-            <option value="forex">外汇</option>
-            <option value="bond">债券</option>
-          </select>
-        </div>
-        <div class="field">
           <label for="risk-tolerance">风险偏好</label>
           <select id="risk-tolerance">
             <option value="1">保守 ★</option>
@@ -308,29 +337,9 @@
             <option value="5">激进 ★★★★★</option>
           </select>
         </div>
-        <div class="field">
-          <label for="mode">运行模式</label>
-          <select id="mode">
-            <option value="live" selected>LIVE — 真实 LLM</option>
-            <option value="auto">自动</option>
-            <option value="demo">DEMO — 脚本模拟</option>
-          </select>
-        </div>
 
-        <div class="analyst-toggles">
-          <label class="checked"><input type="checkbox" id="an-market" checked /> 市场分析师</label>
-          <label class="checked"><input type="checkbox" id="an-social" checked /> 情绪分析师</label>
-          <label class="checked"><input type="checkbox" id="an-news" checked /> 新闻分析师</label>
-          <label class="checked"><input type="checkbox" id="an-fundamentals" checked /> 基本面分析师</label>
-        </div>
-
-        <details class="advanced-toggles" style="grid-column: 1 / -1;">
-          <summary style="cursor:pointer; font-size:13px; color:var(--text-soft); padding:6px 0;">⚙️ 高级选项</summary>
-          <div class="analyst-toggles" style="margin-top:6px;">
-            <label><input type="checkbox" id="opt-parallel-analysts" /> ⚡ 并行分析师 <span class="muted" style="font-size:11px;">(实验性 · 单次决策快 ~50%)</span></label>
-            <label><input type="checkbox" id="opt-structured-reports" /> 📋 结构化报告 <span class="muted" style="font-size:11px;">(每次决策多 1 次轻 LLM 调用)</span></label>
-          </div>
-        </details>
+        <!-- Hidden: pinned defaults — instrument hint = 不限, mode = live,
+             all 4 analysts on, both advanced toggles on. Wired in readForm(). -->
       </div>
 
       <div style="margin-top: 12px;">
@@ -375,7 +384,10 @@
     </header>
 
     <div class="history-page-toolbar">
-      <input type="search" class="history-page-search" id="history-page-search" placeholder="🔍 搜索代码 / 备注 / 决策内容…" />
+      <input type="search" class="history-page-search" id="history-page-search"
+             name="hist-q" autocomplete="off" autocapitalize="off"
+             spellcheck="false" data-1p-ignore data-lpignore="true"
+             placeholder="🔍 搜索代码 / 备注 / 决策内容…" />
       <div class="history-page-actions">
         <button class="btn secondary small" id="history-page-clear-filters">清空筛选</button>
         <button class="btn secondary small" id="history-page-refresh">↻ 刷新</button>
@@ -595,7 +607,10 @@
   <div class="filter-bar">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:12px; flex-wrap:wrap;">
       <div class="muted" style="font-size:12px;">所有维度均支持<strong>多选</strong>。不选中任何 chip 即表示该维度不过滤。</div>
-      <button class="btn secondary" id="clear-filters" style="font-size:12px; padding:5px 12px;">清空筛选</button>
+      <div style="display:flex; gap:6px;">
+        <button class="chip" id="strategy-only-favorites" data-filter="favorites" data-value="1">★ 仅看已收藏</button>
+        <button class="btn secondary" id="clear-filters" style="font-size:12px; padding:5px 12px;">清空筛选</button>
+      </div>
     </div>
     <div class="filter-row">
       <span class="label">类别</span>
