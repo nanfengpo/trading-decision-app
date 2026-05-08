@@ -1603,16 +1603,43 @@ const History = {
         id: r.id, ticker: r.ticker, trade_date: r.trade_date,
         rating: r.rating, status: r.status,
         startedAt: r.started_at, completedAt: r.completed_at,
+        createdAt: r.created_at,
         pinned: !!r.pinned,
         user_rating: r.user_rating || 0,
         user_note: r.user_note || "",
-        params: { instrument_hint: r.instrument_hint || r.params?.instrument_hint },
+        // Carry richer params — used by HistoryPage filters / detail drawer.
+        params: r.params || {
+          instrument_hint: r.instrument_hint,
+          llm_provider:    r.llm_provider,
+          deep_think_llm:  r.deep_think_llm,
+          quick_think_llm: r.quick_think_llm,
+          mode:            r.mode,
+          output_language: r.output_language,
+          research_depth:  r.research_depth,
+        },
+        // Top-level shortcuts for filtering speed
+        llm_provider:    r.llm_provider    || r.params?.llm_provider,
+        deep_think_llm:  r.deep_think_llm  || r.params?.deep_think_llm,
+        quick_think_llm: r.quick_think_llm || r.params?.quick_think_llm,
+        mode:            r.mode            || r.params?.mode,
+        output_language: r.output_language || r.params?.output_language,
+        research_depth:  r.research_depth  || r.params?.research_depth,
         _remote: true,
       }));
     } else {
-      this.cache = this._readLocal();
+      this.cache = this._readLocal().map(e => ({
+        ...e,
+        // Mirror the same flattened keys for local entries
+        llm_provider:    e.params?.llm_provider,
+        deep_think_llm:  e.params?.deep_think_llm,
+        quick_think_llm: e.params?.quick_think_llm,
+        mode:            e.params?.mode,
+        output_language: e.params?.output_language,
+        research_depth:  e.params?.research_depth,
+      }));
     }
     this.render();
+    if (typeof HistoryPage !== "undefined") HistoryPage.render();
   },
 
   async setPinned(id, pinned) {
@@ -2124,6 +2151,460 @@ const Opportunities = {
         this.render();
       });
     });
+  },
+};
+
+// =========================================================================
+// HistoryPage — full-page history view with chip filters + detail drawer
+// =========================================================================
+const HistoryPage = {
+  filters: {
+    rating: new Set(),       // Buy / Hold / Sell / Overweight / Underweight
+    instrument: new Set(),   // stock / etf / crypto / commodity / forex
+    provider: new Set(),     // anthropic / openai / deepseek / ...
+    depth: new Set(),        // 1 / 2 / 3 / 5
+    mode: new Set(),         // live / demo
+    stars: "all",            // all | 5 | 4 | 3 | rated | unrated
+    pinned: false,
+    favorited: false,
+    dateRange: "all",        // all | 7d | 30d | 90d
+  },
+  search: "",
+  sort: "time-desc",         // time-desc | time-asc | rating | ticker | depth-desc
+  _selectedId: null,
+
+  init() {
+    this.listEl    = document.getElementById("history-page-list");
+    this.emptyEl   = document.getElementById("history-page-empty");
+    this.filtersEl = document.getElementById("history-page-filters");
+    this.statsEl   = document.getElementById("history-page-stats");
+    this.searchEl  = document.getElementById("history-page-search");
+    this.drawerEl  = document.getElementById("history-detail-drawer");
+    this.backdropEl = document.getElementById("history-detail-backdrop");
+    if (!this.listEl) return;
+
+    this.searchEl.addEventListener("input", e => {
+      this.search = e.target.value.trim().toLowerCase(); this.render();
+    });
+    document.getElementById("history-page-clear-filters").addEventListener("click", () => {
+      this.filters.rating.clear();
+      this.filters.instrument.clear();
+      this.filters.provider.clear();
+      this.filters.depth.clear();
+      this.filters.mode.clear();
+      this.filters.stars = "all";
+      this.filters.pinned = false;
+      this.filters.favorited = false;
+      this.filters.dateRange = "all";
+      this.search = "";
+      this.searchEl.value = "";
+      this.render();
+    });
+    document.getElementById("history-page-refresh").addEventListener("click", async () => {
+      await History.refresh();   // refresh() calls our render
+    });
+    document.getElementById("history-page-clear-all").addEventListener("click", async () => {
+      if (!confirm("确定要清空所有历史决策？此操作无法撤销。")) return;
+      if (History._useRemote()) await window.Decisions.deleteAll();
+      else localStorage.removeItem(History.LOCAL_KEY);
+      await History.refresh();
+    });
+
+    // Drawer close
+    document.getElementById("history-detail-close").addEventListener("click", () => this.closeDrawer());
+    this.backdropEl.addEventListener("click", () => this.closeDrawer());
+    document.addEventListener("keydown", e => {
+      if (e.key === "Escape" && this.drawerEl.classList.contains("open")) this.closeDrawer();
+    });
+
+    this.render();
+  },
+
+  // --- aggregation helpers ----------------------------------------------
+  _direction(rating) {
+    const r = String(rating || "").toLowerCase();
+    if (r === "buy" || r === "overweight") return "bull";
+    if (r === "sell" || r === "underweight") return "bear";
+    return "hold";
+  },
+  _instrument(e) { return History._instrument(e); },
+
+  _providers() {
+    const counts = {};
+    History.cache.forEach(e => {
+      const p = e.llm_provider; if (p) counts[p] = (counts[p] || 0) + 1;
+    });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  },
+  _depths() {
+    const counts = {};
+    History.cache.forEach(e => {
+      const d = e.research_depth; if (d != null) counts[d] = (counts[d] || 0) + 1;
+    });
+    return Object.entries(counts).sort((a, b) => Number(a[0]) - Number(b[0]));
+  },
+  _modes() {
+    const counts = {};
+    History.cache.forEach(e => {
+      const m = e.mode || "auto"; counts[m] = (counts[m] || 0) + 1;
+    });
+    return Object.entries(counts);
+  },
+
+  // --- filtering --------------------------------------------------------
+  _filtered() {
+    const f = this.filters;
+    const now = Date.now();
+    return History.cache.filter(e => {
+      if (f.rating.size && !f.rating.has(e.rating)) return false;
+      if (f.instrument.size && !f.instrument.has(this._instrument(e))) return false;
+      if (f.provider.size && !f.provider.has(e.llm_provider)) return false;
+      if (f.depth.size && !f.depth.has(String(e.research_depth ?? ""))) return false;
+      if (f.mode.size && !f.mode.has(e.mode || "auto")) return false;
+      if (f.pinned && !e.pinned) return false;
+      if (f.favorited) {
+        if (typeof Favorites === "undefined" || !Favorites.isFavorited("decision", e.id)) return false;
+      }
+      if (f.stars !== "all") {
+        const s = e.user_rating || 0;
+        if (f.stars === "rated"   && s === 0) return false;
+        if (f.stars === "unrated" && s !== 0) return false;
+        if (/^\d+$/.test(f.stars) && s < parseInt(f.stars, 10)) return false;
+      }
+      if (f.dateRange !== "all") {
+        const t = new Date(e.completedAt || e.startedAt || e.createdAt).getTime();
+        const days = { "7d": 7, "30d": 30, "90d": 90 }[f.dateRange] || 0;
+        if (now - t > days * 86400 * 1000) return false;
+      }
+      if (this.search) {
+        const q = this.search;
+        const hay = `${e.ticker} ${e.user_note || ""} ${e.llm_provider || ""} ${e.deep_think_llm || ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  },
+
+  _sorted(items) {
+    const cmp = {
+      "time-desc":  (a, b) => new Date(b.completedAt || b.startedAt) - new Date(a.completedAt || a.startedAt),
+      "time-asc":   (a, b) => new Date(a.completedAt || a.startedAt) - new Date(b.completedAt || b.startedAt),
+      "rating":     (a, b) => (b.user_rating || 0) - (a.user_rating || 0)
+                              || new Date(b.completedAt || b.startedAt) - new Date(a.completedAt || a.startedAt),
+      "ticker":     (a, b) => (a.ticker || "").localeCompare(b.ticker || ""),
+      "depth-desc": (a, b) => (b.research_depth || 0) - (a.research_depth || 0),
+    }[this.sort] || ((a, b) => 0);
+    return [...items].sort(cmp);
+  },
+
+  // --- rendering --------------------------------------------------------
+  render() {
+    if (!this.listEl) return;
+    this.renderStats();
+    this.renderFilters();
+
+    const filtered = this._sorted(this._filtered());
+
+    if (!History.cache.length) {
+      this.listEl.innerHTML = "";
+      this.emptyEl.innerHTML = History._loadError
+        ? `<span style="color:var(--danger);">⚠ 加载失败：${escapeHtml(History._loadError)}</span><br><span style="font-size:11px;">检查 Supabase 是否跑过 schema.sql + 所有 migrations。</span>`
+        : (History._useRemote()
+            ? "云端无记录。完成一次分析后会自动保存。"
+            : "暂无记录。完成一次分析后会自动保存（仅当前浏览器；登录可云端同步）。");
+      this.updateNavBadge(0);
+      return;
+    }
+    if (!filtered.length) {
+      this.listEl.innerHTML = "";
+      this.emptyEl.innerHTML = `<span class="muted">在 ${History.cache.length} 条记录里没有匹配筛选条件的项。</span>`;
+      this.updateNavBadge(History.cache.length);
+      return;
+    }
+    this.emptyEl.innerHTML = "";
+
+    this.listEl.innerHTML = filtered.map(e => this._row(e)).join("");
+    this.listEl.querySelectorAll("li.row").forEach(li => {
+      li.addEventListener("click", ev => {
+        if (ev.target.closest(".col-actions")) return;
+        this.openDrawer(li.dataset.id);
+      });
+    });
+    this.listEl.querySelectorAll("[data-act]").forEach(b => {
+      b.addEventListener("click", async ev => {
+        ev.stopPropagation();
+        const id = b.closest("li.row").dataset.id;
+        const entry = History.cache.find(x => x.id === id);
+        if (!entry) return;
+        switch (b.dataset.act) {
+          case "pin":
+            await History.setPinned(id, !entry.pinned);
+            break;
+          case "fav":
+            if (typeof Favorites === "undefined") return;
+            await Favorites.toggle("decision", id, {
+              ticker: entry.ticker, trade_date: entry.trade_date, rating: entry.rating,
+            });
+            this.render();
+            break;
+          case "del":
+            if (!confirm(`确定删除 ${entry.ticker} @ ${entry.trade_date} 的决策？`)) return;
+            await History.delete(id);
+            break;
+        }
+      });
+    });
+    this.updateNavBadge(History.cache.length);
+  },
+
+  _row(e) {
+    const dirEmoji = { bull: "🟢", bear: "🔴", hold: "⚪" }[this._direction(e.rating)] || "⚪";
+    const isFav = (typeof Favorites !== "undefined") && Favorites.isFavorited("decision", e.id);
+    const ts = new Date(e.completedAt || e.startedAt);
+    const llmBadge = e.llm_provider
+      ? `<span class="badge">${escapeHtml(e.llm_provider)}</span>`
+      : `<span class="badge">—</span>`;
+    const deep = e.deep_think_llm ? escapeHtml(e.deep_think_llm).slice(0, 24) : "";
+    const stars = e.user_rating
+      ? "★".repeat(e.user_rating) + "☆".repeat(5 - e.user_rating)
+      : "—";
+    return `
+      <li class="row ${e.pinned ? "pinned" : ""}" data-id="${e.id}">
+        <span class="col-ticker">${dirEmoji} ${escapeHtml(e.ticker || "")}</span>
+        <span class="col-rating"><span class="rating-pill ${e.rating || ""}">${escapeHtml(e.rating || "—")}</span></span>
+        <span class="col-date col-meta">${escapeHtml(e.trade_date || "")}</span>
+        <span class="col-depth col-meta">深度 ${e.research_depth || "—"}</span>
+        <span class="col-llm">${llmBadge} ${deep ? `<span style="font-size:10px;color:var(--text-muted);">${deep}</span>` : ""}</span>
+        <span class="col-meta">${stars}</span>
+        <span class="col-meta" style="font-size:11px;">${ts.toLocaleString()}</span>
+        <span class="col-actions">
+          <button data-act="pin" title="${e.pinned ? "取消置顶" : "置顶"}" class="${e.pinned ? "on" : ""}">${e.pinned ? "📌" : "📍"}</button>
+          <button data-act="fav" title="${isFav ? "取消收藏" : "收藏"}" class="${isFav ? "on" : ""}">${isFav ? "★" : "☆"}</button>
+          <button data-act="del" title="删除">🗑</button>
+        </span>
+      </li>`;
+  },
+
+  renderStats() {
+    if (!this.statsEl) return;
+    const all = History.cache;
+    const now = Date.now();
+    const within = (days) => all.filter(e => now - new Date(e.completedAt || e.startedAt || e.createdAt).getTime() < days * 86400 * 1000).length;
+    this.statsEl.innerHTML = `
+      <div class="stat-cell"><div class="stat-num">${all.length}</div><div class="stat-label">总数</div></div>
+      <div class="stat-cell"><div class="stat-num">${within(7)}</div><div class="stat-label">7 天</div></div>
+      <div class="stat-cell"><div class="stat-num">${within(30)}</div><div class="stat-label">30 天</div></div>
+      <div class="stat-cell"><div class="stat-num">${all.filter(e => e.pinned).length}</div><div class="stat-label">置顶</div></div>
+    `;
+  },
+
+  renderFilters() {
+    if (!this.filtersEl) return;
+    const f = this.filters;
+    const chip = (label, active, clickAttr, count) =>
+      `<span class="filter-chip ${active ? "active" : ""}" ${clickAttr}>${label}${count != null ? `<span class="filter-chip-count">${count}</span>` : ""}</span>`;
+
+    const ratingRow = `
+      <div class="filter-group"><span class="filter-group-label">建议</span>
+        ${["Buy","Overweight","Hold","Underweight","Sell"].map(r =>
+          chip(r, f.rating.has(r), `data-toggle="rating" data-val="${r}"`,
+            History.cache.filter(e => e.rating === r).length)
+        ).join("")}
+      </div>`;
+
+    const instRow = `
+      <div class="filter-group"><span class="filter-group-label">品种</span>
+        ${[
+          ["stock","📈 股票"],["etf","🧺 ETF"],["crypto","₿ 加密"],
+          ["commodity","🛢 商品"],["forex","💱 外汇"],
+        ].map(([id, lbl]) =>
+          chip(lbl, f.instrument.has(id), `data-toggle="instrument" data-val="${id}"`,
+            History.cache.filter(e => this._instrument(e) === id).length)
+        ).join("")}
+      </div>`;
+
+    const providers = this._providers();
+    const provRow = providers.length ? `
+      <div class="filter-group"><span class="filter-group-label">LLM</span>
+        ${providers.map(([p, n]) =>
+          chip(p, f.provider.has(p), `data-toggle="provider" data-val="${p}"`, n)
+        ).join("")}
+      </div>` : "";
+
+    const depths = this._depths();
+    const depthRow = depths.length ? `
+      <div class="filter-group"><span class="filter-group-label">深度</span>
+        ${depths.map(([d, n]) =>
+          chip(`${d} 轮`, f.depth.has(String(d)), `data-toggle="depth" data-val="${d}"`, n)
+        ).join("")}
+      </div>` : "";
+
+    const modes = this._modes();
+    const modeRow = modes.length > 1 ? `
+      <div class="filter-group"><span class="filter-group-label">模式</span>
+        ${modes.map(([m, n]) =>
+          chip(m, f.mode.has(m), `data-toggle="mode" data-val="${m}"`, n)
+        ).join("")}
+      </div>` : "";
+
+    const dateRow = `
+      <div class="filter-group"><span class="filter-group-label">时间</span>
+        ${[["all","全部"],["7d","近 7 天"],["30d","近 30 天"],["90d","近 90 天"]].map(([v, lbl]) =>
+          chip(lbl, f.dateRange === v, `data-toggle="dateRange" data-val="${v}"`)
+        ).join("")}
+      </div>`;
+
+    const starsRow = `
+      <div class="filter-group"><span class="filter-group-label">评分</span>
+        ${[["all","全部"],["5","≥5★"],["4","≥4★"],["3","≥3★"],["rated","有评分"],["unrated","未评分"]].map(([v, lbl]) =>
+          chip(lbl, f.stars === v, `data-toggle="stars" data-val="${v}"`)
+        ).join("")}
+      </div>`;
+
+    const togglesRow = `
+      <div class="filter-group"><span class="filter-group-label">其它</span>
+        ${chip("📌 仅置顶", f.pinned, `data-toggle="pinned"`)}
+        ${chip("⭐ 仅收藏", f.favorited, `data-toggle="favorited"`)}
+        <span style="margin-left:auto;"></span>
+        <select id="history-page-sort" style="font-size:12px; padding:3px 8px; border-radius:6px; border:1px solid var(--border); background:var(--bg-card); color:var(--text);">
+          <option value="time-desc"  ${this.sort==="time-desc" ? "selected":""}>时间 ↓</option>
+          <option value="time-asc"   ${this.sort==="time-asc"  ? "selected":""}>时间 ↑</option>
+          <option value="rating"     ${this.sort==="rating"    ? "selected":""}>评分</option>
+          <option value="depth-desc" ${this.sort==="depth-desc"? "selected":""}>深度</option>
+          <option value="ticker"     ${this.sort==="ticker"    ? "selected":""}>代码</option>
+        </select>
+      </div>`;
+
+    this.filtersEl.innerHTML = ratingRow + instRow + provRow + depthRow + modeRow + dateRow + starsRow + togglesRow;
+
+    this.filtersEl.querySelectorAll(".filter-chip").forEach(el => {
+      el.addEventListener("click", () => {
+        const k = el.dataset.toggle;
+        const v = el.dataset.val;
+        if (k === "stars" || k === "dateRange") {
+          this.filters[k] = v;
+        } else if (k === "pinned" || k === "favorited") {
+          this.filters[k] = !this.filters[k];
+        } else {
+          if (this.filters[k].has(v)) this.filters[k].delete(v);
+          else this.filters[k].add(v);
+        }
+        this.render();
+      });
+    });
+    document.getElementById("history-page-sort").addEventListener("change", e => {
+      this.sort = e.target.value; this.render();
+    });
+  },
+
+  // --- Detail drawer ----------------------------------------------------
+  async openDrawer(id) {
+    this._selectedId = id;
+    const entry = await History.getEntry(id);
+    if (!entry) return;
+    document.getElementById("history-detail-title").textContent =
+      `${entry.ticker} · ${entry.trade_date}`;
+
+    const params = entry.params || {};
+    const dec = entry.runState?.finalDecision || {};
+    const usage = entry.runState?.usage || {};
+    const matched = entry.runState?.matchedStrategies || [];
+
+    const rows = (kvs) => kvs.filter(([_, v]) => v != null && v !== "")
+      .map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(String(v))}</td></tr>`).join("");
+
+    const paramsBlock = `
+      <div class="section">
+        <h4>运行参数</h4>
+        <table class="params-table">${rows([
+          ["LLM Provider",   params.llm_provider],
+          ["深思模型",       params.deep_think_llm],
+          ["轻思模型",       params.quick_think_llm],
+          ["研究深度",       params.research_depth ? `${params.research_depth} 轮` : null],
+          ["运行模式",       params.mode],
+          ["输出语言",       params.output_language],
+          ["品种偏好",       params.instrument_hint || "不限"],
+          ["风险偏好",       params.risk_tolerance],
+          ["分析师选择",     Array.isArray(params.selected_analysts) ? params.selected_analysts.join(", ") : null],
+          ["策略关注",       Array.isArray(params.strategies_focus) ? params.strategies_focus.join(", ") : null],
+          ["开始时间",       entry.startedAt ? new Date(entry.startedAt).toLocaleString() : null],
+          ["完成时间",       entry.completedAt ? new Date(entry.completedAt).toLocaleString() : null],
+          ["状态",           entry.status],
+        ])}</table>
+      </div>`;
+
+    const usageBlock = (usage && (usage.tokens_in || usage.tokens_out || usage.elapsed_sec))
+      ? `<div class="section">
+          <h4>用量</h4>
+          <table class="params-table">${rows([
+            ["耗时",           usage.elapsed_sec ? `${usage.elapsed_sec}s` : null],
+            ["输入 token",     usage.tokens_in],
+            ["输出 token",     usage.tokens_out],
+            ["LLM 调用",       usage.llm_calls],
+            ["工具调用",       usage.tool_calls],
+          ])}</table>
+        </div>` : "";
+
+    const finalRaw = dec.raw_zh || dec.raw_en || "";
+    const finalBlock = finalRaw ? `
+      <div class="section">
+        <h4>最终决策</h4>
+        <div class="final-text">${mdLite(finalRaw)}</div>
+      </div>` : "";
+
+    const matchBlock = matched.length ? `
+      <div class="section">
+        <h4>匹配策略 (${matched.length})</h4>
+        ${matched.slice(0, 5).map(m => `
+          <div style="border:1px solid var(--border); border-radius:6px; padding:8px 10px; margin-bottom:6px;">
+            <div><strong>${escapeHtml(m.name || "")}</strong> · 匹配分 ${m.score}</div>
+            ${m.concrete_how ? `<div style="font-size:12px; margin-top:4px;">${escapeHtml(m.concrete_how)}</div>` : ""}
+          </div>`).join("")}
+      </div>` : "";
+
+    document.getElementById("history-detail-body").innerHTML =
+      paramsBlock + usageBlock + finalBlock + matchBlock;
+
+    // actions in drawer head
+    const isFav = (typeof Favorites !== "undefined") && Favorites.isFavorited("decision", id);
+    document.getElementById("history-detail-actions").innerHTML = `
+      <button class="icon-btn" data-detail-act="open" title="在新窗口打开">🪟 打开</button>
+      <button class="icon-btn ${entry.pinned ? "on" : ""}" data-detail-act="pin" title="${entry.pinned ? "取消置顶" : "置顶"}">${entry.pinned ? "📌" : "📍"}</button>
+      <button class="icon-btn ${isFav ? "on" : ""}" data-detail-act="fav" title="${isFav ? "取消收藏" : "收藏"}">${isFav ? "★" : "☆"}</button>
+    `;
+    document.getElementById("history-detail-actions").querySelectorAll("[data-detail-act]").forEach(b => {
+      b.addEventListener("click", async () => {
+        const act = b.dataset.detailAct;
+        if (act === "open") {
+          this.closeDrawer();
+          document.querySelector('nav.tabs button[data-tab="decision"]').click();
+          WindowManager.openHistorical(entry);
+        } else if (act === "pin") {
+          await History.setPinned(id, !entry.pinned);
+          this.openDrawer(id);
+        } else if (act === "fav") {
+          if (typeof Favorites !== "undefined") {
+            await Favorites.toggle("decision", id, { ticker: entry.ticker, trade_date: entry.trade_date, rating: entry.rating });
+          }
+          this.openDrawer(id);
+        }
+      });
+    });
+
+    this.drawerEl.classList.add("open");
+    this.backdropEl.classList.add("open");
+  },
+
+  closeDrawer() {
+    this.drawerEl.classList.remove("open");
+    this.backdropEl.classList.remove("open");
+    this._selectedId = null;
+  },
+
+  updateNavBadge(n) {
+    const b = document.getElementById("history-nav-badge");
+    if (!b) return;
+    if (n > 0) { b.textContent = n; b.style.display = ""; } else b.style.display = "none";
   },
 };
 
@@ -2837,6 +3318,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   AuthUI.init();
   await History.init();
   Favorites.init();
+  HistoryPage.init();
   Opportunities.init();
   Profile.init();
 });

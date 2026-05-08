@@ -132,13 +132,28 @@
       if (error) {
         console.warn("[decisions] view failed, falling back to decisions:", error.message);
         // View missing / column drift — fall back to the base table so the
-        // user can at least see records.
+        // user can at least see records. Pull params JSONB so the UI can
+        // still extract llm_provider / depth / mode for filtering.
         const fb = await client
           .from("decisions")
           .select("id,ticker,trade_date,rating,status,started_at,completed_at,created_at,pinned,user_rating,user_note,params")
           .order("created_at", { ascending: false })
           .limit(500);
-        data = fb.data;
+        if (fb.data) {
+          // Normalise to the shape decisions_summary would have produced.
+          data = fb.data.map(r => ({
+            ...r,
+            llm_provider:    r.params?.llm_provider ?? null,
+            deep_think_llm:  r.params?.deep_think_llm ?? null,
+            quick_think_llm: r.params?.quick_think_llm ?? null,
+            instrument_hint: r.params?.instrument_hint ?? null,
+            mode:            r.params?.mode ?? null,
+            output_language: r.params?.output_language ?? null,
+            research_depth:  r.params?.research_depth ?? null,
+          }));
+        } else {
+          data = null;
+        }
         error = fb.error;
         if (error) console.error("[decisions] list (fallback)", error);
       }

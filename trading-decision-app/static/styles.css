@@ -948,3 +948,162 @@ nav.tabs button.active .nav-badge { background: rgba(255,255,255,0.3); color: va
 /* footer */
 footer { margin-top: 60px; padding-top: 24px; border-top: 1px solid var(--border); text-align: center; color: var(--text-muted); font-size: 12px; }
 .chapter-title { display: block; color: var(--text-muted); font-size: 13px; letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 4px; }
+
+/* ===== History page (full width) ===================================== */
+.history-page { max-width: 1400px; margin: 0 auto; padding: 0; }
+.history-page-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 24px; flex-wrap: wrap; margin-bottom: 18px;
+}
+.history-page-stats {
+  display: grid; grid-template-columns: repeat(4, minmax(72px, auto)); gap: 14px;
+  align-items: center;
+}
+.history-page-stats .stat-cell {
+  text-align: right; line-height: 1.15;
+}
+.history-page-stats .stat-num {
+  font-size: 22px; font-weight: 700; color: var(--accent);
+}
+.history-page-stats .stat-label {
+  font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;
+}
+
+.history-page-toolbar {
+  display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap;
+}
+.history-page-search {
+  flex: 1 1 280px; min-width: 220px;
+  padding: 8px 12px; font-size: 14px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-card); color: var(--text);
+}
+.history-page-search:focus { outline: none; border-color: var(--accent); }
+.history-page-actions { display: flex; gap: 6px; }
+
+/* Filter chip groups */
+.history-page-filters {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 10px 12px; margin-bottom: 14px;
+  background: var(--bg-soft); border-radius: 8px; border: 1px solid var(--border);
+}
+.filter-group { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.filter-group-label {
+  font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;
+  min-width: 64px;
+}
+.filter-chip {
+  font-size: 12px; padding: 3px 10px; border-radius: 999px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  color: var(--text-soft); cursor: pointer; user-select: none;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.filter-chip:hover { border-color: var(--accent); }
+.filter-chip.active {
+  background: var(--accent); color: white; border-color: var(--accent);
+}
+.filter-chip-count {
+  font-size: 10px; opacity: 0.7; margin-left: 4px;
+}
+
+/* List */
+.history-page-list-wrap { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.history-page-empty { padding: 32px 18px; text-align: center; color: var(--text-muted); font-size: 13px; }
+.history-page-empty:empty { display: none; }
+.history-page-list { list-style: none; margin: 0; padding: 0; }
+.history-page-list li.row {
+  display: grid;
+  grid-template-columns: 100px 64px 110px 72px 110px 110px 1fr auto;
+  gap: 12px; align-items: center;
+  padding: 11px 16px; border-bottom: 1px solid var(--border);
+  cursor: pointer; transition: background 0.1s;
+}
+.history-page-list li.row:hover { background: var(--bg-soft); }
+.history-page-list li.row:last-child { border-bottom: none; }
+.history-page-list li.row.pinned { background: rgba(139, 69, 19, 0.04); }
+.history-page-list .col-ticker { font-weight: 600; }
+.history-page-list .col-rating .rating-pill {
+  display: inline-block; padding: 2px 9px; border-radius: 999px;
+  font-size: 11px; font-weight: 600;
+}
+.history-page-list .col-rating .rating-pill.Buy        { background: #2e7d32; color: white; }
+.history-page-list .col-rating .rating-pill.Overweight { background: #4a8c4f; color: white; }
+.history-page-list .col-rating .rating-pill.Hold       { background: #b89030; color: white; }
+.history-page-list .col-rating .rating-pill.Sell       { background: #c0392b; color: white; }
+.history-page-list .col-rating .rating-pill.Underweight{ background: #d4634b; color: white; }
+.history-page-list .col-rating .rating-pill[class*="—"],
+.history-page-list .col-rating .rating-pill:not(.Buy):not(.Hold):not(.Sell):not(.Overweight):not(.Underweight) {
+  background: var(--bg-soft); color: var(--text-muted);
+}
+.history-page-list .col-meta { font-size: 11px; color: var(--text-muted); }
+.history-page-list .col-llm { font-size: 11px; color: var(--text-soft); }
+.history-page-list .col-llm .badge {
+  display: inline-block; padding: 1px 6px; border-radius: 4px;
+  background: var(--bg-soft); font-size: 10px;
+}
+.history-page-list .col-actions { display: flex; gap: 4px; }
+.history-page-list .col-actions button {
+  background: none; border: none; cursor: pointer; padding: 2px 6px; font-size: 14px;
+  border-radius: 4px; color: var(--text-muted);
+}
+.history-page-list .col-actions button:hover { background: var(--bg-soft); color: var(--text); }
+.history-page-list .col-actions button.on { color: var(--accent); }
+
+/* Detail drawer */
+.history-detail-drawer {
+  position: fixed; top: 0; right: -640px; width: 620px; max-width: 92vw;
+  height: 100vh; background: var(--bg-card); border-left: 1px solid var(--border);
+  z-index: 1000; transition: right 0.24s ease;
+  display: flex; flex-direction: column;
+  box-shadow: -8px 0 32px rgba(0,0,0,0.18);
+}
+.history-detail-drawer.open { right: 0; }
+.history-detail-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.32);
+  z-index: 999; opacity: 0; pointer-events: none; transition: opacity 0.18s;
+}
+.history-detail-backdrop.open { opacity: 1; pointer-events: auto; }
+.drawer-head {
+  display: flex; gap: 8px; align-items: center;
+  padding: 14px 16px; border-bottom: 1px solid var(--border);
+}
+.drawer-title { font-weight: 600; font-size: 15px; flex: 1; }
+.drawer-actions { display: flex; gap: 4px; }
+.drawer-body { flex: 1 1 0; overflow: auto; padding: 18px; }
+.drawer-body .section { margin-bottom: 22px; }
+.drawer-body .section h4 {
+  margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.drawer-body .params-table {
+  width: 100%; border-collapse: collapse; font-size: 13px;
+}
+.drawer-body .params-table td {
+  padding: 5px 10px; border-bottom: 1px solid var(--border); vertical-align: top;
+}
+.drawer-body .params-table td:first-child {
+  color: var(--text-muted); width: 40%; white-space: nowrap;
+}
+.drawer-body .params-table td:last-child { color: var(--text); font-family: ui-monospace, monospace; font-size: 12px; }
+.drawer-body .final-text { font-size: 13px; line-height: 1.55; }
+.drawer-body .final-text p { margin: 0 0 10px; }
+
+/* Responsive — mobile hides some columns */
+@media (max-width: 900px) {
+  .history-page-list li.row {
+    grid-template-columns: 1fr 64px auto;
+    grid-template-areas:
+      "tk rt ac"
+      "mt mt mt"
+      "lm lm lm";
+    gap: 4px 8px;
+  }
+  .history-page-list .col-ticker { grid-area: tk; }
+  .history-page-list .col-rating { grid-area: rt; }
+  .history-page-list .col-actions { grid-area: ac; }
+  .history-page-list .col-meta { grid-area: mt; font-size: 10px; }
+  .history-page-list .col-llm { grid-area: lm; font-size: 10px; }
+  .history-page-list .col-date,
+  .history-page-list .col-depth { display: none; }
+}
+
