@@ -233,21 +233,35 @@
       </div>
       <div style="display:flex; gap:6px; align-items:center;">
         <span class="muted" style="font-size:12px;" id="watchlist-updated"></span>
+        <button class="btn secondary small" id="watchlist-import-history" title="把历史决策里出现过的标的批量加入自选">📥 从历史导入</button>
         <button class="btn secondary small" id="watchlist-refresh">↻ 刷新</button>
         <button class="btn primary small" id="watchlist-add-btn">+ 添加自选</button>
       </div>
     </header>
 
-    <!-- Add form: hidden until + 添加自选 clicked -->
-    <div class="watchlist-add-form" id="watchlist-add-form" style="display:none;">
+    <!-- Add form: hidden until + 添加自选 clicked.
+         NOT wrapped in <form> on purpose — Chrome treats <form> with text
+         inputs as a possible login form and triggers "save password?".
+         autocomplete=new-password + neutral names + no submit input also
+         help suppress the heuristic. -->
+    <div class="watchlist-add-form" id="watchlist-add-form" style="display:none;" role="group" aria-label="添加自选">
       <input type="text" id="watchlist-add-ticker"
-             placeholder="代码：NVDA / BTC-USD / 0700.HK / 600519.SS / GC=F …"
-             autocomplete="off" />
-      <input type="text" id="watchlist-add-name" placeholder="昵称（可选）" autocomplete="off" />
+             name="wl-symbol-input" autocomplete="new-password"
+             autocapitalize="off" spellcheck="false"
+             data-1p-ignore data-lpignore="true"
+             placeholder="代码：NVDA / BTC-USD / 0700.HK / 600519.SS / GC=F …" />
+      <input type="text" id="watchlist-add-name"
+             name="wl-display-input" autocomplete="new-password"
+             autocapitalize="off" spellcheck="false"
+             data-1p-ignore data-lpignore="true"
+             placeholder="昵称（可选）" />
       <input type="text" id="watchlist-add-group"
-             placeholder="自定义分组（可选，例如：龙头股 / 长期持有）" autocomplete="off" />
-      <button class="btn primary small" id="watchlist-add-submit">添加</button>
-      <button class="btn secondary small" id="watchlist-add-cancel">取消</button>
+             name="wl-group-input" autocomplete="new-password"
+             autocapitalize="off" spellcheck="false"
+             data-1p-ignore data-lpignore="true"
+             placeholder="自定义分组（可选，例如：龙头股 / 长期持有）" />
+      <button type="button" class="btn primary small" id="watchlist-add-submit">添加</button>
+      <button type="button" class="btn secondary small" id="watchlist-add-cancel">取消</button>
     </div>
 
     <!-- Group chips: built-in markets + custom groups -->

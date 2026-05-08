@@ -2019,6 +2019,7 @@ const Watchlist = {
     document.getElementById("watchlist-add-ticker").addEventListener("keydown", e => {
       if (e.key === "Enter") this._submitAdd();
     });
+    document.getElementById("watchlist-import-history").addEventListener("click", () => this.importFromHistory());
 
     if (window.Auth) window.Auth.onChange(() => this.refresh(true));
     this.refresh(true);
@@ -2043,9 +2044,15 @@ const Watchlist = {
 
   _useRemote() { return Boolean(window.Watchlist && window.Auth && window.Auth.isSignedIn()); },
 
+  // Bare crypto symbols frequently typed without -USD/-USDT suffix.
+  // Treat them as crypto when standalone so import-from-history doesn't
+  // misclassify e.g. "BTC" as a US stock.
+  CRYPTO_BARE: new Set(["BTC","ETH","SOL","XRP","DOGE","ADA","MATIC","LINK","AVAX","DOT","BNB","TRX","SHIB","LTC","BCH","UNI","ATOM"]),
+
   _detectMarket(ticker) {
     const t = (ticker || "").toUpperCase();
     if (!t) return "other";
+    if (this.CRYPTO_BARE.has(t)) return "crypto";
     if (/^(BTC|ETH|SOL|XRP|DOGE|ADA|MATIC|LINK|AVAX|DOT)[-/]?(USD|USDT)$/.test(t)) return "crypto";
     if (t.endsWith("USDT") || t.endsWith("-USD")) return "crypto";
     if (/^\d{4,5}\.HK$|^\d{4,5}$/.test(t)) return "hk";
@@ -2081,6 +2088,47 @@ const Watchlist = {
     catch { return []; }
   },
 
+  /**
+   * Pull every distinct ticker that ever appeared in the user's history
+   * (History.cache) and add to watchlist if not already present.
+   * Called by the 📥 从历史导入 button and once automatically when an
+   * authenticated user has decisions but an empty watchlist (one-time
+   * backfill — guarded by a localStorage flag so we don't nag).
+   */
+  async importFromHistory(silent = false) {
+    if (!window.History) return { added: 0, skipped: 0 };
+    const seen = new Set(this.cache.map(e => (e.ticker || "").toUpperCase()));
+    const toAdd = [];
+    (History.cache || []).forEach(d => {
+      const t = (d.ticker || "").trim().toUpperCase();
+      if (t && !seen.has(t)) { seen.add(t); toAdd.push({ ticker: t }); }
+    });
+    if (!toAdd.length) {
+      if (!silent) alert("没有可导入的新标的（历史记录里的代码都已在自选中）。");
+      return { added: 0, skipped: 0 };
+    }
+    let added = 0, failed = 0;
+    for (const t of toAdd) {
+      const market = this._detectMarket(t.ticker);
+      if (this._useRemote()) {
+        const r = await window.Watchlist.add({ ticker: t.ticker, market });
+        if (r.error) failed++; else added++;
+      } else {
+        const all = this._readLocal();
+        if (!all.some(x => x.ticker === t.ticker)) {
+          all.unshift({ id: "loc-" + Date.now() + Math.random().toString(36).slice(2,5), ticker: t.ticker, market, added_at: new Date().toISOString() });
+          localStorage.setItem(this.LOCAL_KEY, JSON.stringify(all));
+          added++;
+        }
+      }
+    }
+    await this.refresh(true);
+    if (!silent) {
+      alert(`已导入 ${added} 个新标的${failed ? `（失败 ${failed} 个）` : ""}。`);
+    }
+    return { added, skipped: toAdd.length - added - failed };
+  },
+
   async refresh(fetchQuotes = false) {
     this._loadError = null;
     if (this._useRemote()) {
@@ -2091,6 +2139,21 @@ const Watchlist = {
       this.cache = this._readLocal();
     }
     this.render();
+
+    // One-time auto-import: if signed-in user has decisions but no watchlist,
+    // backfill from history. Guarded so it only runs once per browser.
+    const flagKey = "tda:wl:autoImported";
+    if (this._useRemote()
+        && this.cache.length === 0
+        && (window.History?.cache || []).length > 0
+        && !localStorage.getItem(flagKey)) {
+      localStorage.setItem(flagKey, "1");
+      try {
+        const r = await this.importFromHistory(true);
+        if (r.added > 0) console.info("watchlist auto-imported", r.added, "tickers from history");
+      } catch (e) { console.warn("auto-import failed", e); }
+    }
+
     if (fetchQuotes) this._fetchQuotes();
   },
 
