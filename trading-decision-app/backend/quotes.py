@@ -199,10 +199,67 @@ def _fetch_yfinance(ticker: str, market: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _fetch_crypto_coingecko(ticker: str) -> Optional[Dict[str, Any]]:
+    """Free no-auth fallback when Binance is geo-blocked (e.g. Fly sjc).
+    Maps BTC-USD / ETHUSDT → coingecko id via a tiny built-in map."""
+    cg_map = {
+        "BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana", "XRP": "ripple",
+        "DOGE": "dogecoin", "ADA": "cardano", "MATIC": "polygon-pos",
+        "LINK": "chainlink", "AVAX": "avalanche-2", "DOT": "polkadot",
+    }
+    sym = ticker.upper().replace("-", "").replace("/", "").replace("USDT", "USD")
+    base = sym.replace("USD", "")
+    cg_id = cg_map.get(base)
+    if not cg_id:
+        return None
+    try:
+        r = requests.get(
+            "https://api.coingecko.com/api/v3/coins/markets",
+            params={"vs_currency": "usd", "ids": cg_id, "price_change_percentage": "24h"},
+            timeout=5,
+        )
+        r.raise_for_status()
+        arr = r.json() or []
+        if not arr:
+            return None
+        d = arr[0]
+        out = _empty_quote(ticker, "crypto")
+        out.update({
+            "name":        d.get("name") or ticker,
+            "price":       d.get("current_price"),
+            "change":      d.get("price_change_24h"),
+            "change_pct":  d.get("price_change_percentage_24h") or d.get("price_change_percentage_24h_in_currency"),
+            "high":        d.get("high_24h"),
+            "low":         d.get("low_24h"),
+            "volume":      d.get("total_volume"),
+            "turnover":    d.get("total_volume"),  # USD-denominated already
+            "market_cap":  d.get("market_cap"),
+            "source":      "coingecko",
+        })
+        return out
+    except Exception as e:
+        logger.warning("coingecko %s: %s", cg_id, e)
+        return None
+
+
 def _fetch_one(ticker: str) -> Dict[str, Any]:
     market = detect_market(ticker)
     if market == "crypto":
-        return _fetch_crypto(ticker)
+        # Binance first (richest data), then CoinGecko (geo-resilient),
+        # then yfinance (always available with the BTC-USD form).
+        q = _fetch_crypto(ticker)
+        if q.get("price") is not None:
+            return q
+        cg = _fetch_crypto_coingecko(ticker)
+        if cg:
+            return cg
+        # yfinance accepts "BTC-USD" natively for crypto
+        yf_t = ticker if "-" in ticker.upper() else ticker.upper().replace("USDT", "-USD")
+        q = _fetch_yfinance(yf_t, "crypto")
+        if q:
+            q["ticker"] = ticker  # preserve user's input form
+            return q
+        return _empty_quote(ticker, "crypto")
 
     if market == "us":
         q = _fetch_us_finnhub(ticker)
