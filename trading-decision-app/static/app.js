@@ -1991,8 +1991,9 @@ const Watchlist = {
   cache: [],          // [{id, ticker, display_name, market, custom_group, ...}]
   quotes: {},         // ticker → quote dict
   activeGroup: "all",
-  expandedId: null,
+  selectedId: null,   // which asset is shown in the main panel
   _loadError: null,
+  _decisionFullCache: {},  // id → full entry (with runState) loaded on demand
 
   MARKETS: [
     { id: "all",       label: "全部" },
@@ -2010,6 +2011,8 @@ const Watchlist = {
     this.emptyEl   = document.getElementById("watchlist-empty");
     this.groupsEl  = document.getElementById("watchlist-groups");
     this.updatedEl = document.getElementById("watchlist-updated");
+    this.mainEl    = document.getElementById("watchlist-main");
+    this.mainEmpty = document.getElementById("watchlist-main-empty");
     if (!this.listEl) return;
 
     document.getElementById("watchlist-refresh").addEventListener("click", () => this.refresh(true));
@@ -2191,6 +2194,36 @@ const Watchlist = {
     return this.cache.filter(e => (e.market || "other") === g);
   },
 
+  // ---- formatters --------------------------------------------------------
+  // Chinese natural-language amount: "1.532 万亿美元", "2090 亿美元",
+  // "5.2 万美元", "3,456 美元". Pass `unit` to control suffix ("美元", "" …).
+  // `n` is in absolute USD (already scaled — caller multiplies market_cap by
+  // 1e6 when source is Finnhub).
+  formatChineseAmount(n, unit = "美元") {
+    if (n == null || isNaN(n)) return "—";
+    const v = Number(n);
+    const abs = Math.abs(v);
+    const sign = v < 0 ? "-" : "";
+    // 万亿 = 1e12, 亿 = 1e8, 万 = 1e4
+    let scaled, suffix;
+    if (abs >= 1e12)      { scaled = v / 1e12; suffix = "万亿"; }
+    else if (abs >= 1e8)  { scaled = v / 1e8;  suffix = "亿";   }
+    else if (abs >= 1e4)  { scaled = v / 1e4;  suffix = "万";   }
+    else {
+      return sign + Math.round(abs).toLocaleString("en-US") + " " + unit;
+    }
+    // Headline numbers: matches the form the user asked for —
+    //   "1.532 万亿美元" (a < 10, 3 decimals)
+    //   "20.9 亿美元"   (a in [10,100), 1 decimal)
+    //   "2090 亿美元"   (a >= 100, 0 decimals)
+    const a = Math.abs(scaled);
+    const digits = a >= 100 ? 0 : a >= 10 ? 1 : 3;
+    let txt = a.toFixed(digits);
+    // Trim trailing zeros only after a decimal point — never from "1200".
+    if (txt.indexOf(".") !== -1) txt = txt.replace(/0+$/, "").replace(/\.$/, "");
+    return sign + txt + " " + suffix + unit;
+  },
+
   render() {
     if (!this.listEl) return;
     this.renderGroups();
@@ -2200,6 +2233,7 @@ const Watchlist = {
       this.emptyEl.innerHTML = this._loadError
         ? `<span style="color:var(--danger);">⚠ ${escapeHtml(this._loadError)}</span><br><span style="font-size:11px;">检查 Supabase 是否跑过 schema.sql + 所有 migrations（包括 0006）。</span>`
         : `<div style="margin-bottom:8px;">还没添加任何自选。</div><div style="font-size:11px;">点击右上角 <strong>+ 添加自选</strong> 开始关注你感兴趣的标的。</div>`;
+      this._renderMainEmpty();
       return;
     }
     this.emptyEl.innerHTML = "";
@@ -2207,115 +2241,209 @@ const Watchlist = {
     const filtered = this._filtered();
     const fmt = (n, d=2) => (n == null || isNaN(n)) ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: d });
     const fmtPct = (p) => (p == null || isNaN(p)) ? "—" : (p >= 0 ? "+" : "") + Number(p).toFixed(2) + "%";
-    const fmtVol = (v) => {
-      if (v == null) return "—";
-      if (v >= 1e9) return (v / 1e9).toFixed(2) + "B";
-      if (v >= 1e6) return (v / 1e6).toFixed(2) + "M";
-      if (v >= 1e3) return (v / 1e3).toFixed(1) + "K";
-      return Math.round(v);
-    };
 
-    const head = `
-      <li class="watchlist-head-row">
-        <span class="wl-c-ticker">代码 / 名称</span>
-        <span class="wl-c-price">最新价</span>
-        <span class="wl-c-pct">涨跌幅</span>
-        <span class="wl-c-ohlc">OHLC</span>
-        <span class="wl-c-vol">成交额</span>
-        <span class="wl-c-cap">市值(M)</span>
-        <span class="wl-c-pe">P/E</span>
-        <span class="wl-c-act"></span>
-      </li>`;
+    // If selectedId no longer matches any visible row (e.g. user changed
+    // group filter), fall back to the first visible asset.
+    if (!filtered.find(e => e.id === this.selectedId)) {
+      this.selectedId = filtered[0]?.id || null;
+    }
 
     const rows = filtered.map(e => {
       const q = this.quotes[e.ticker.toUpperCase()] || {};
       const pct = q.change_pct;
       const dirCls = pct == null ? "" : (pct >= 0 ? "up" : "down");
-      const ohlc = (q.open != null) ? `${fmt(q.open)} / ${fmt(q.high)} / ${fmt(q.low)} / ${fmt(q.prev_close)}` : "—";
-      const isExpanded = this.expandedId === e.id;
-      let inner = `
-        <li class="watchlist-row ${isExpanded ? "expanded" : ""}" data-id="${e.id}" data-ticker="${escapeHtml(e.ticker)}">
-          <span class="wl-c-ticker">${escapeHtml(e.ticker)}${e.display_name ? `<span class="wl-name">${escapeHtml(e.display_name)}</span>` : (q.name && q.name !== e.ticker ? `<span class="wl-name">${escapeHtml(q.name)}</span>` : "")}</span>
-          <span class="wl-c-price">${fmt(q.price)}</span>
-          <span class="wl-c-pct ${dirCls}">${fmtPct(pct)}</span>
-          <span class="wl-c-ohlc">${ohlc}</span>
-          <span class="wl-c-vol">${fmtVol(q.turnover || q.volume)}</span>
-          <span class="wl-c-cap">${q.market_cap == null ? "—" : fmt(q.market_cap, 0)}</span>
-          <span class="wl-c-pe">${q.pe_ratio == null ? "—" : fmt(q.pe_ratio, 1)}</span>
-          <span class="wl-c-act">
-            <button class="run-btn" data-act="run" title="启动新决策">▶ 决策</button>
-            <button data-act="del" title="移除">🗑</button>
-          </span>
+      const isSelected = this.selectedId === e.id;
+      const nameSub = e.display_name || (q.name && q.name !== e.ticker ? q.name : "");
+      return `
+        <li class="watchlist-row ${isSelected ? "selected" : ""}" data-id="${e.id}" data-ticker="${escapeHtml(e.ticker)}">
+          <span class="wl-side-ticker">${escapeHtml(e.ticker)}${nameSub ? `<span class="wl-name">${escapeHtml(nameSub)}</span>` : ""}</span>
+          <span class="wl-side-price">${fmt(q.price)}</span>
+          <span class="wl-side-pct ${dirCls}">${fmtPct(pct)}</span>
         </li>`;
-      if (isExpanded) inner += this._expandedHTML(e);
-      return inner;
     }).join("");
 
-    this.listEl.innerHTML = head + rows;
+    this.listEl.innerHTML = rows;
     this._wireRows();
+    this._renderMain();
   },
 
-  _expandedHTML(e) {
-    const decisions = (window.History?.cache || [])
-      .filter(d => (d.ticker || "").toUpperCase() === e.ticker.toUpperCase())
-      .slice(0, 8);
-    const list = decisions.length ? `
-      <ul class="recent-list">
-        ${decisions.map(d => `
-          <li data-decision-id="${d.id}">
-            <span class="pill rating-pill ${d.rating || ""}" style="background:${
-              d.rating === "Buy" || d.rating === "Overweight" ? "#2e7d32" :
-              d.rating === "Sell" || d.rating === "Underweight" ? "#c0392b" :
-              d.rating === "Hold" ? "#b89030" : "var(--bg-soft)"
-            }; color:white;">${escapeHtml(d.rating || "—")}</span>
-            <span>${escapeHtml(d.trade_date || "")}</span>
-            <span class="muted" style="font-size:11px;">${new Date(d.completedAt || d.startedAt).toLocaleString()}</span>
-            ${d.user_rating ? `<span style="color:var(--accent);">${"★".repeat(d.user_rating)}</span>` : ""}
-          </li>`).join("")}
-      </ul>` : `<div class="muted" style="font-size:12px;">还没跑过 ${escapeHtml(e.ticker)} 的决策。</div>`;
-    return `<div class="watchlist-row-expand" data-id="${e.id}">
-      <strong>最近决策</strong>${decisions.length ? ` (${decisions.length})` : ""}
-      ${list}
+  _renderMainEmpty() {
+    if (!this.mainEl) return;
+    this.mainEl.innerHTML = `<div class="watchlist-main-empty">还没添加任何自选标的。点击右上角「+ 添加自选」开始关注你感兴趣的标的。</div>`;
+  },
+
+  _renderMain() {
+    if (!this.mainEl) return;
+    const entry = this.cache.find(e => e.id === this.selectedId);
+    if (!entry) {
+      this.mainEl.innerHTML = `<div class="watchlist-main-empty">← 选择左侧任意标的查看实时行情和最新决策</div>`;
+      return;
+    }
+    const q = this.quotes[entry.ticker.toUpperCase()] || {};
+    const fmt = (n, d=2) => (n == null || isNaN(n)) ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: d });
+    const fmtPct = (p) => (p == null || isNaN(p)) ? "—" : (p >= 0 ? "+" : "") + Number(p).toFixed(2) + "%";
+    const pct = q.change_pct;
+    const dirCls = pct == null ? "" : (pct >= 0 ? "up" : "down");
+    const dirArrow = pct == null ? "" : (pct >= 0 ? "▲" : "▼");
+    const nameSub = entry.display_name || (q.name && q.name !== entry.ticker ? q.name : "");
+
+    // Chinese natural-language formatter for 成交额 / 市值.
+    // Note: Finnhub returns market_cap in millions USD — backend leaves it
+    // as-is in `market_cap`, so multiply by 1e6 before formatting unless
+    // the source is something else. CoinGecko / yfinance give absolute USD,
+    // so we only scale when source is finnhub.
+    const capRaw = q.market_cap;
+    const capUsd = (capRaw != null && q.source === "finnhub") ? capRaw * 1e6 : capRaw;
+    const turnoverUsd = q.turnover != null
+      ? q.turnover
+      : (q.volume != null && q.price != null ? q.volume * q.price : q.volume);
+    const turnoverUnit = (q.source === "binance" || q.source === "coingecko") ? "美元" : "美元";
+
+    const stats = `
+      <div class="wl-stats">
+        <div><div class="wl-stat-label">开盘</div><div class="wl-stat-value">${fmt(q.open)}</div></div>
+        <div><div class="wl-stat-label">最高</div><div class="wl-stat-value">${fmt(q.high)}</div></div>
+        <div><div class="wl-stat-label">最低</div><div class="wl-stat-value">${fmt(q.low)}</div></div>
+        <div><div class="wl-stat-label">昨收</div><div class="wl-stat-value">${fmt(q.prev_close)}</div></div>
+        <div><div class="wl-stat-label">成交额</div><div class="wl-stat-value">${this.formatChineseAmount(turnoverUsd, turnoverUnit)}</div></div>
+        <div><div class="wl-stat-label">市值</div><div class="wl-stat-value">${this.formatChineseAmount(capUsd, "美元")}</div></div>
+        <div><div class="wl-stat-label">P/E</div><div class="wl-stat-value">${fmt(q.pe_ratio, 1)}</div></div>
+        <div><div class="wl-stat-label">数据源</div><div class="wl-stat-value" style="font-size:11px;">${escapeHtml(q.source || "—")}</div></div>
+      </div>`;
+
+    const head = `
+      <div class="wl-main-head">
+        <span class="wl-main-ticker">${escapeHtml(entry.ticker)}</span>
+        ${nameSub ? `<span class="wl-main-name">${escapeHtml(nameSub)}</span>` : ""}
+        <span class="wl-main-price">${fmt(q.price)}</span>
+        <span class="wl-main-pct ${dirCls}">${dirArrow} ${fmtPct(pct)}</span>
+        <span class="wl-main-actions">
+          <button class="btn primary small" data-main-act="run">▶ 启动新决策</button>
+          <button class="btn secondary small" data-main-act="del">🗑 移除</button>
+        </span>
+      </div>`;
+
+    this.mainEl.innerHTML = head + stats + this._latestDecisionHTML(entry);
+    this._wireMain(entry);
+    // Lazily fetch the full decision payload (for summary text) and re-render
+    // just the decision block when it lands.
+    this._maybeLoadFullDecision(entry);
+  },
+
+  _matchedDecisions(entry) {
+    return (window.History?.cache || [])
+      .filter(d => (d.ticker || "").toUpperCase() === entry.ticker.toUpperCase())
+      .sort((a, b) => new Date(b.completedAt || b.startedAt) - new Date(a.completedAt || a.startedAt));
+  },
+
+  _latestDecisionHTML(entry) {
+    const matched = this._matchedDecisions(entry);
+    const latest = matched[0];
+    if (!latest) {
+      return `<div class="wl-decision-block">
+        <h3>最新决策</h3>
+        <div class="wl-no-decision">还没跑过 ${escapeHtml(entry.ticker)} 的决策。点击 ▶ 启动新决策 让 AI 为你分析。</div>
+      </div>`;
+    }
+    const ratingColor = latest.rating === "Buy" || latest.rating === "Overweight" ? "#2e7d32"
+      : latest.rating === "Sell" || latest.rating === "Underweight" ? "#c0392b"
+      : latest.rating === "Hold" ? "#b89030" : "var(--bg-soft)";
+    const ts = latest.completedAt || latest.startedAt;
+    const tsTxt = ts ? new Date(ts).toLocaleString() : "";
+    const stars = latest.user_rating ? `<span style="color:var(--accent);">${"★".repeat(latest.user_rating)}</span>` : "";
+
+    // The full text is loaded asynchronously — show what we have now.
+    const full = this._decisionFullCache[latest.id];
+    const summary = full?.runState?.finalDecision?.raw_zh
+      || full?.runState?.finalDecision?.raw_en
+      || "";
+    const summaryHTML = summary
+      ? `<div class="wl-decision-summary">${mdLite(summary)}</div>`
+      : `<div class="wl-decision-summary muted" style="font-size:12px;">点击查看完整决策内容…</div>`;
+
+    const moreCount = matched.length > 1 ? matched.length - 1 : 0;
+    const more = moreCount > 0
+      ? `<div class="wl-decision-history-link">还有 ${moreCount} 条历史决策 · <a data-main-act="all-history">在「历史」页查看全部</a></div>`
+      : "";
+
+    return `<div class="wl-decision-block">
+      <h3>最新决策</h3>
+      <div class="wl-decision-card" data-main-act="open-decision" data-decision-id="${latest.id}">
+        <div class="wl-decision-meta">
+          <span class="wl-decision-rating" style="background:${ratingColor};">${escapeHtml(latest.rating || "—")}</span>
+          <span>${escapeHtml(latest.trade_date || "")}</span>
+          <span>${escapeHtml(tsTxt)}</span>
+          ${stars}
+        </div>
+        ${summaryHTML}
+      </div>
+      ${more}
     </div>`;
+  },
+
+  // Pull the full decision body (runState.finalDecision.raw_zh/en) from
+  // History.getEntry the first time we render an asset, then re-render the
+  // decision block with the summary text in place.
+  async _maybeLoadFullDecision(entry) {
+    const latest = this._matchedDecisions(entry)[0];
+    if (!latest) return;
+    if (this._decisionFullCache[latest.id]) return;
+    if (!window.History) return;
+    try {
+      const full = await window.History.getEntry(latest.id);
+      if (full) {
+        this._decisionFullCache[latest.id] = full;
+        // Only re-render if the user is still looking at this asset.
+        if (this.selectedId === entry.id) this._renderMain();
+      }
+    } catch (e) {
+      console.warn("watchlist load decision failed", e);
+    }
   },
 
   _wireRows() {
     this.listEl.querySelectorAll(".watchlist-row").forEach(li => {
-      li.addEventListener("click", ev => {
-        if (ev.target.closest(".wl-c-act")) return;
+      li.addEventListener("click", () => {
         const id = li.dataset.id;
-        this.expandedId = (this.expandedId === id) ? null : id;
+        if (this.selectedId === id) return;
+        this.selectedId = id;
         this.render();
       });
     });
-    this.listEl.querySelectorAll("[data-act]").forEach(b => {
-      b.addEventListener("click", async ev => {
+  },
+
+  _wireMain(entry) {
+    if (!this.mainEl) return;
+    this.mainEl.querySelectorAll("[data-main-act]").forEach(el => {
+      el.addEventListener("click", async ev => {
         ev.stopPropagation();
-        const li = b.closest(".watchlist-row");
-        const id = li.dataset.id;
-        const ticker = li.dataset.ticker;
-        const entry = this.cache.find(x => x.id === id);
-        if (!entry) return;
-        if (b.dataset.act === "run") {
-          openDecisionFor(ticker);
-        } else if (b.dataset.act === "del") {
-          if (!confirm(`从自选中移除 ${ticker}？`)) return;
-          if (this._useRemote()) await window.Watchlist.remove(id);
+        const act = el.dataset.mainAct;
+        if (act === "run") {
+          openDecisionFor(entry.ticker);
+        } else if (act === "del") {
+          if (!confirm(`从自选中移除 ${entry.ticker}？`)) return;
+          if (this._useRemote()) await window.Watchlist.remove(entry.id);
           else {
-            const all = this._readLocal().filter(x => x.id !== id);
+            const all = this._readLocal().filter(x => x.id !== entry.id);
             localStorage.setItem(this.LOCAL_KEY, JSON.stringify(all));
           }
+          if (this.selectedId === entry.id) this.selectedId = null;
           await this.refresh();
+        } else if (act === "open-decision") {
+          const did = el.dataset.decisionId;
+          document.querySelector('nav.tabs button[data-tab="history"]').click();
+          if (typeof HistoryPage !== "undefined") setTimeout(() => HistoryPage.openDrawer(did), 100);
+        } else if (act === "all-history") {
+          // Jump to history page filtered by this ticker
+          document.querySelector('nav.tabs button[data-tab="history"]').click();
+          if (typeof HistoryPage !== "undefined") {
+            setTimeout(() => {
+              HistoryPage.search = entry.ticker.toLowerCase();
+              if (HistoryPage.searchEl) HistoryPage.searchEl.value = entry.ticker;
+              HistoryPage.render();
+            }, 100);
+          }
         }
-      });
-    });
-    // expanded panel — click decision item
-    this.listEl.querySelectorAll(".recent-list li[data-decision-id]").forEach(li => {
-      li.addEventListener("click", async ev => {
-        ev.stopPropagation();
-        const did = li.dataset.decisionId;
-        document.querySelector('nav.tabs button[data-tab="history"]').click();
-        if (typeof HistoryPage !== "undefined") setTimeout(() => HistoryPage.openDrawer(did), 100);
       });
     });
   },
@@ -2335,7 +2463,9 @@ const Watchlist = {
     this.groupsEl.querySelectorAll(".watchlist-group-chip").forEach(el => {
       el.addEventListener("click", () => {
         this.activeGroup = el.dataset.group;
-        this.expandedId = null;
+        // Force reselect if current selection is filtered out
+        const stillVisible = this._filtered().some(x => x.id === this.selectedId);
+        if (!stillVisible) this.selectedId = null;
         this.render();
       });
     });
